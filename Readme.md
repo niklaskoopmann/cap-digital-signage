@@ -142,7 +142,7 @@ The script will:
 
 ### 401 Unauthorized from the API
 If Xibo API auth is still enabled, unauthenticated calls will fail with **401/403**.
-- For now you requested `AUTH_MODE=none`.
+- For now you request `AUTH_MODE=none`.
 - If you see 401, the CMS is still protected — later you can switch to `AUTH_MODE=oauth` and fill `secrets.json`.
 
 ### Deletion safety
