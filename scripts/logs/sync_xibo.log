@@ -1,0 +1,139 @@
+2026-05-13 15:46:37,899 | INFO | Step 1: Connecting to Wi-Fi hotspot SSID='XIBO-HOTSPOT' ...
+2026-05-13 15:46:38,265 | INFO | Wi-Fi profile 'XIBO-HOTSPOT' not found. Creating/importing profile ...
+2026-05-13 15:46:38,473 | INFO | Wi-Fi profile imported successfully.
+2026-05-13 15:46:38,676 | ERROR | FAILED: Failed to start Wi-Fi connection.
+STDOUT:
+Network shell commands need location permission to access WLAN information. Turn on Location services on the Location page in Privacy & security settings.
+Here is the URI for the Location page in the Settings app: ms-settings:privacy-location
+To open the Location page in the Settings app, run the following command:
+start ms-settings:privacy-location
+
+Or, to open the Location page from the Run dialog box, press Windows logo key + R, and then copy and paste the URI above.
+
+Function WlanGetAvailableNetworkList returns error 5:
+The requested operation requires elevation (Run as administrator).
+
+
+STDERR:
+Traceback (most recent call last):
+  File "C:\Code\digital_signage\scripts\sync_xibo.py", line 1049, in main
+    WifiManager.connect(
+    ~~~~~~~~~~~~~~~~~~~^
+        ssid=cfg.wifi_ssid,
+        ^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        timeout_seconds=cfg.wifi_timeout,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Code\digital_signage\scripts\sync_xibo.py", line 472, in connect
+    raise RuntimeError(
+    ...<2 lines>...
+    )
+RuntimeError: Failed to start Wi-Fi connection.
+STDOUT:
+Network shell commands need location permission to access WLAN information. Turn on Location services on the Location page in Privacy & security settings.
+Here is the URI for the Location page in the Settings app: ms-settings:privacy-location
+To open the Location page in the Settings app, run the following command:
+start ms-settings:privacy-location
+
+Or, to open the Location page from the Run dialog box, press Windows logo key + R, and then copy and paste the URI above.
+
+Function WlanGetAvailableNetworkList returns error 5:
+The requested operation requires elevation (Run as administrator).
+
+
+STDERR:
+
+2026-05-13 15:56:18,005 | INFO | Step 1: Connecting to Wi-Fi hotspot SSID='XIBO-HOTSPOT' ...
+2026-05-13 15:56:18,172 | INFO | Wi-Fi profile 'XIBO-HOTSPOT' already exists.
+2026-05-13 15:56:18,377 | ERROR | FAILED: Failed to start Wi-Fi connection.
+STDOUT:
+Network shell commands need location permission to access WLAN information. Turn on Location services on the Location page in Privacy & security settings.
+Here is the URI for the Location page in the Settings app: ms-settings:privacy-location
+To open the Location page in the Settings app, run the following command:
+start ms-settings:privacy-location
+
+Or, to open the Location page from the Run dialog box, press Windows logo key + R, and then copy and paste the URI above.
+
+Function WlanGetAvailableNetworkList returns error 5:
+The requested operation requires elevation (Run as administrator).
+
+
+STDERR:
+Traceback (most recent call last):
+  File "C:\Code\digital_signage\scripts\sync_xibo.py", line 995, in main
+    WifiManager.connect(
+    ~~~~~~~~~~~~~~~~~~~^
+        ssid=cfg.wifi_ssid,
+        ^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        timeout_seconds=cfg.wifi_timeout,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Code\digital_signage\scripts\sync_xibo.py", line 457, in connect
+    raise RuntimeError(
+    ...<2 lines>...
+    )
+RuntimeError: Failed to start Wi-Fi connection.
+STDOUT:
+Network shell commands need location permission to access WLAN information. Turn on Location services on the Location page in Privacy & security settings.
+Here is the URI for the Location page in the Settings app: ms-settings:privacy-location
+To open the Location page in the Settings app, run the following command:
+start ms-settings:privacy-location
+
+Or, to open the Location page from the Run dialog box, press Windows logo key + R, and then copy and paste the URI above.
+
+Function WlanGetAvailableNetworkList returns error 5:
+The requested operation requires elevation (Run as administrator).
+
+
+STDERR:
+
+2026-05-26 18:07:02,156 | INFO | Step 1: Connecting to Wi-Fi hotspot SSID='XIBO-HOTSPOT' ...
+2026-05-26 18:07:02,675 | INFO | Wi-Fi profile 'XIBO-HOTSPOT' already exists.
+2026-05-26 18:07:03,034 | ERROR | FAILED: Failed to start Wi-Fi connection.
+STDOUT:
+Network shell commands need location permission to access WLAN information. Turn on Location services on the Location page in Privacy & security settings.
+Here is the URI for the Location page in the Settings app: ms-settings:privacy-location
+To open the Location page in the Settings app, run the following command:
+start ms-settings:privacy-location
+
+Or, to open the Location page from the Run dialog box, press Windows logo key + R, and then copy and paste the URI above.
+
+Function WlanGetAvailableNetworkList returns error 5:
+The requested operation requires elevation (Run as administrator).
+
+
+STDERR:
+Traceback (most recent call last):
+  File "C:\Code\digital_signage\scripts\sync_xibo.py", line 995, in main
+    WifiManager.connect(
+    ~~~~~~~~~~~~~~~~~~~^
+        ssid=cfg.wifi_ssid,
+        ^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        timeout_seconds=cfg.wifi_timeout,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Code\digital_signage\scripts\sync_xibo.py", line 457, in connect
+    raise RuntimeError(
+    ...<2 lines>...
+    )
+RuntimeError: Failed to start Wi-Fi connection.
+STDOUT:
+Network shell commands need location permission to access WLAN information. Turn on Location services on the Location page in Privacy & security settings.
+Here is the URI for the Location page in the Settings app: ms-settings:privacy-location
+To open the Location page in the Settings app, run the following command:
+start ms-settings:privacy-location
+
+Or, to open the Location page from the Run dialog box, press Windows logo key + R, and then copy and paste the URI above.
+
+Function WlanGetAvailableNetworkList returns error 5:
+The requested operation requires elevation (Run as administrator).
+
+
+STDERR:
+

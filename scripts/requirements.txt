@@ -1,0 +1,5 @@
+requests>=2.32.0
+python-dotenv>=1.0.1
+tqdm>=4.66.0
+requests-toolbelt>=1.0.0
+rich>=14.1.0
