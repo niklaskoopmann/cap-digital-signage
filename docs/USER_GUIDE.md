@@ -4,7 +4,7 @@ This guide explains how to run the sync tool, how the scripts behave, and how to
 
 ## What this tool does
 
-The sync scripts copy media from the local `images/` folder into the Xibo CMS library.
+The sync scripts copy media from the local `media/` folder into the Xibo CMS library.
 
 Two script variants are available:
 
@@ -30,7 +30,7 @@ You need:
 - Python 3.10 or newer.
 - Access to the Xibo CMS.
 - A filled `scripts/.env` file.
-- Your media files in the `images/` folder.
+- Your media files in the `media/` folder.
 
 Install the Python dependencies once:
 
@@ -78,6 +78,15 @@ Important notes for `sync_xibo.py`:
 - `--dry-run`: show the plan but do not upload or delete.
 - `--delete` / `--no-delete`: force deletion behavior for that run.
 
+Deletion behavior is controlled in two places:
+
+- `DELETE_REMOTE_NOT_LOCAL` in `scripts/.env` sets the default answer.
+- `--delete` or `--no-delete` overrides that default for a single run.
+
+If deletion is enabled, the script only deletes remote items that are not present locally. When `ONLY_DELETE_MANAGED_TAG=true`, it further restricts deletes to items managed by this sync tool.
+
+New uploads are tagged during upload and are tagged again after the upload succeeds. This keeps future delete runs safe because managed media can be recognized even after a restart.
+
 Example:
 
 ```powershell
@@ -104,7 +113,7 @@ On the first run, the script will usually show the current settings and ask whet
 
 Recommended first run flow:
 
-1. Put a few test images into `images/`.
+1. Put a few test media files into `media/`.
 2. Make sure `scripts/.env` points to the correct CMS.
 3. Run a dry-run.
 4. Check the output.

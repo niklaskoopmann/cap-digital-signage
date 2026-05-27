@@ -13,7 +13,7 @@ The scripts are intentionally single-file command-line tools with a Rich-based t
 
 ## Repository Layout
 
-- `images/`: local media source directory used by the sync scripts.
+- `media/`: local media source directory used by the sync scripts.
 - `scripts/`: Python code and runtime configuration.
   - `sync_xibo_no_wifi.py`: sync script without Wi‑Fi connect/disconnect.
   - `sync_xibo.py`: sync script with Windows Wi‑Fi connect/disconnect.
@@ -33,7 +33,7 @@ Both scripts load environment variables from `scripts/.env`.
 - `CMS_TIMEOUT_SECONDS`: Timeout for HTTP requests.
 - `AUTH_MODE`: `none` or `oauth`.
 - `CMS_CLIENT_ID` / `CMS_CLIENT_SECRET`: OAuth client credentials from Xibo.
-- `LOCAL_MEDIA_DIR`: Folder containing local media files, usually `../images`.
+- `LOCAL_MEDIA_DIR`: Folder containing local media files, usually `../media`.
 - `MEDIA_EXTENSIONS`: File extensions that count as media.
 - `COMPARE_MODE`: `filename` or `hash`.
 - `MANAGED_TAG`: Tag used to mark media managed by the sync script.

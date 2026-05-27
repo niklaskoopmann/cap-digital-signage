@@ -1,6 +1,6 @@
 # Xibo Media Sync
 
-This repository packages a terminal-based sync tool for copying local images and videos into a Xibo CMS library.
+This repository packages a terminal-based sync tool for copying local media into a Xibo CMS library.
 
 Start here:
 

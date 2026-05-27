@@ -624,6 +624,7 @@ class XiboClient:
             params = {"start": start, "length": page_size}
             if managed_tag:
                 params["tags"] = managed_tag
+                params["embed"] = "tags"
             if folder_id:
                 params["folderId"] = folder_id
 
@@ -702,6 +703,8 @@ class XiboClient:
                         fields["name"] = name
                     if folder_id:
                         fields["folderId"] = folder_id
+                    if tags:
+                        fields["tags"] = ",".join(dict.fromkeys(tags))
 
                     encoder = MultipartEncoder(fields=fields)
                     task_id = progress.add_task(f"Uploading {file_path.name}", total=encoder.len)
@@ -760,7 +763,7 @@ class XiboClient:
             data={"forceDelete": 1},
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
-        if r.status_code != 200:
+        if r.status_code not in (200, 204):
             raise RuntimeError(f"Delete mediaId={media_id} failed ({r.status_code}): {r.text}")
 
     def collect_now(self, display_group_id: str, dry_run: bool) -> None:
@@ -959,8 +962,8 @@ def config_wizard(env_path: Path) -> None:
     # Local media
     env_data["LOCAL_MEDIA_DIR"] = prompt_edit(
         "LOCAL_MEDIA_DIR",
-        get("LOCAL_MEDIA_DIR", "../images"),
-        help_text="Relative to scripts/ recommended (../images).",
+        get("LOCAL_MEDIA_DIR", "../media"),
+        help_text="Relative to scripts/ recommended (../media).",
     )
     env_data["MEDIA_EXTENSIONS"] = prompt_edit(
         "MEDIA_EXTENSIONS",
@@ -1055,7 +1058,7 @@ def main() -> int:
     parser.set_defaults(delete=None)
     args = parser.parse_args()
 
-    ui_header("Xibo Media Sync", "Sync local images/videos to Xibo CMS via Wi-Fi hotspot")
+    ui_header("Xibo Media Sync", "Sync local media to Xibo CMS via Wi-Fi hotspot")
 
     # Show current .env settings if present
     env_data = read_env_file(env_path)
@@ -1204,9 +1207,15 @@ def main() -> int:
                     elif isinstance(tags, list):
                         tags_str = ",".join([t.get("tag", "") if isinstance(t, dict) else str(t) for t in tags])
 
-                    if cfg.managed_tag not in tags_str:
+                    if tags_str and cfg.managed_tag not in tags_str:
                         ui_warn(f"Skipping delete mediaId={media_id} (missing managed tag)")
                         continue
+
+                    if not tags_str:
+                        logging.warning(
+                            "Deleting mediaId=%s without embedded tags because the library query was already restricted by MANAGED_TAG.",
+                            media_id,
+                        )
 
                 xibo.delete_media(media_id, dry_run=cfg.dry_run)
                 changes_made = True
