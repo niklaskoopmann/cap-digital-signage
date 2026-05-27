@@ -333,3 +333,58 @@ Traceback (most recent call last):
   File "C:\Code\cap-digital-signage\scripts\sync_xibo_no_wifi.py", line 353, in authenticate_oauth
     raise RuntimeError(f"OAuth token request failed ({r.status_code}): {r.text}")
 RuntimeError: OAuth token request failed (401): {"error":"invalid_client","error_description":"Client authentication failed","message":"Client authentication failed"}
+2026-05-27 11:52:14,712 | INFO | Authenticated via OAuth.
+2026-05-27 11:52:14,782 | INFO | Step 2: Fetching CMS Library entries ...
+2026-05-27 11:52:14,844 | INFO | CMS Library fetched: 0 item(s).
+2026-05-27 11:52:14,846 | INFO | Uploading: test_img.jpg
+2026-05-27 11:52:14,846 | INFO | [DRY_RUN] Would upload 'C:\Code\cap-digital-signage\images\test_img.jpg'
+2026-05-27 11:53:02,707 | INFO | Authenticated via OAuth.
+2026-05-27 11:53:02,777 | INFO | Step 2: Fetching CMS Library entries ...
+2026-05-27 11:53:02,826 | INFO | CMS Library fetched: 0 item(s).
+2026-05-27 11:53:02,829 | INFO | Uploading: test_img.jpg
+2026-05-27 11:59:17,519 | INFO | Step 1: Connecting to Wi-Fi hotspot SSID='XIBO-HOTSPOT' ...
+2026-05-27 11:59:17,714 | INFO | Wi-Fi profile 'niklas-XPS-13' already exists.
+2026-05-27 11:59:17,954 | ERROR | FAILED: Failed to start Wi-Fi connection.
+STDOUT:
+Network shell commands need location permission to access WLAN information. Turn on Location services on the Location page in Privacy & security settings.
+Here is the URI for the Location page in the Settings app: ms-settings:privacy-location
+To open the Location page in the Settings app, run the following command:
+start ms-settings:privacy-location
+
+Or, to open the Location page from the Run dialog box, press Windows logo key + R, and then copy and paste the URI above.
+
+Function WlanGetAvailableNetworkList returns error 5:
+The requested operation requires elevation (Run as administrator).
+
+
+STDERR:
+Traceback (most recent call last):
+  File "c:\Code\cap-digital-signage\scripts\sync_xibo.py", line 1122, in main
+    WifiManager.connect(
+    ~~~~~~~~~~~~~~~~~~~^
+        ssid=cfg.wifi_ssid,
+        ^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        timeout_seconds=cfg.wifi_timeout,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "c:\Code\cap-digital-signage\scripts\sync_xibo.py", line 471, in connect
+    raise RuntimeError(
+    ...<2 lines>...
+    )
+RuntimeError: Failed to start Wi-Fi connection.
+STDOUT:
+Network shell commands need location permission to access WLAN information. Turn on Location services on the Location page in Privacy & security settings.
+Here is the URI for the Location page in the Settings app: ms-settings:privacy-location
+To open the Location page in the Settings app, run the following command:
+start ms-settings:privacy-location
+
+Or, to open the Location page from the Run dialog box, press Windows logo key + R, and then copy and paste the URI above.
+
+Function WlanGetAvailableNetworkList returns error 5:
+The requested operation requires elevation (Run as administrator).
+
+
+STDERR:
+

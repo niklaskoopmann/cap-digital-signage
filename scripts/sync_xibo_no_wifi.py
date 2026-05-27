@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import getpass
 import hashlib
 import logging
@@ -350,21 +351,43 @@ class XiboClient:
         }
         r = self.session.post(self._token_url(), data=payload, timeout=self.timeout, verify=self.verify_tls)
         if r.status_code != 200:
-            raise RuntimeError(f"OAuth token request failed ({r.status_code}): {r.text}")
+            # Try to include JSON error when available
+            body_text = r.text
+            try:
+                body_json = r.json()
+                body_text = str(body_json)
+            except Exception:
+                pass
+            raise RuntimeError(f"OAuth token request failed ({r.status_code}): {body_text}")
 
-        body = r.json() if r.headers.get("Content-Type", "").startswith("application/json") else {}
-        token = body.get("access_token")
+        body = {}
+        try:
+            body = r.json()
+        except Exception:
+            pass
+
+        token = body.get("access_token") if isinstance(body, dict) else None
         if not token:
             raise RuntimeError(f"OAuth response missing access_token: {r.text}")
 
-        expires_in = body.get("expires_in")
-        if isinstance(expires_in, (int, float)):
-            self._oauth_token_expires_at = time.time() + float(expires_in) - 60  # refresh 60s early
+        # expires_in may be missing; default to 5 minutes
+        expires_in = body.get("expires_in") if isinstance(body, dict) else None
+        try:
+            expires_val = float(expires_in) if expires_in is not None else 300.0
+        except Exception:
+            expires_val = 300.0
 
+        self._oauth_token_expires_at = time.time() + expires_val - 60.0  # refresh 60s early
         self.session.headers.update({"Authorization": f"Bearer {token}"})
         logging.info("Authenticated via OAuth.")
 
     def _ensure_token_valid(self) -> None:
+        # If we don't have an Authorization header but credentials are available, authenticate.
+        if ("Authorization" not in self.session.headers) and self._oauth_client_id and self._oauth_client_secret:
+            logging.info("No OAuth token present - obtaining new token...")
+            self.authenticate_oauth(self._oauth_client_id, self._oauth_client_secret)
+            return
+
         if self._oauth_token_expires_at and time.time() >= self._oauth_token_expires_at:
             if self._oauth_client_id and self._oauth_client_secret:
                 logging.info("OAuth token expired/near expiry - refreshing...")
@@ -499,7 +522,7 @@ class XiboClient:
                         retry_on_401=True,
                     )
 
-                    if r.status_code == 200:
+                    if r.status_code in (200, 201):
                         payload = r.json()
                         data = self._extract_data(payload)
                         created = data[0] if isinstance(data, list) and data else data
@@ -523,6 +546,8 @@ class XiboClient:
                         f.close()
                     except Exception:
                         pass
+        
+        # If we reach here without returning, raise with last error
 
         raise RuntimeError(last_error or "Upload failed (unknown reason)")
 
@@ -782,6 +807,15 @@ def main() -> int:
     scripts_dir = Path(__file__).resolve().parent
     env_path = scripts_dir / ".env"
 
+    parser = argparse.ArgumentParser(description="Sync local media to Xibo CMS")
+    parser.add_argument("--config", action="store_true", help="Run configuration wizard and exit")
+    parser.add_argument("--yes", "-y", action="store_true", help="Non-interactive: accept defaults and skip prompts")
+    parser.add_argument("--dry-run", action="store_true", help="Preview actions without uploading/deleting")
+    parser.add_argument("--delete", dest="delete", action="store_true", help="Delete remote-only media without prompt")
+    parser.add_argument("--no-delete", dest="delete", action="store_false", help="Do not delete remote-only media")
+    parser.set_defaults(delete=None)
+    args = parser.parse_args()
+
     ui_header("Xibo Media Sync", "Sync local images/videos to Xibo CMS (assumes you are already on the hotspot)")
 
     # Show current .env settings if present
@@ -792,7 +826,12 @@ def main() -> int:
         ui_warn("No .env found yet. You should run the configuration wizard now.")
 
     console.print()
-    override = Confirm.ask(
+    if args.config:
+        config_wizard(env_path)
+        # reload env_data and exit
+        return 0
+
+    override = False if args.yes else Confirm.ask(
         "[bold]Do you want to override/edit configuration values now?[/bold]",
         default=(not env_data),
     )
@@ -814,16 +853,26 @@ def main() -> int:
     # Run option: delete remote?
     console.print()
     ui_header("Run Options", "Choose whether remote-only media should be deleted this run")
-    run_delete = Confirm.ask(
-        "Delete media from Xibo that is NOT present locally?",
-        default=cfg.delete_remote_not_local,
-    )
+    # CLI flag overrides interactive prompt when provided
+    if args.delete is not None:
+        run_delete = bool(args.delete)
+    elif args.yes:
+        run_delete = cfg.delete_remote_not_local
+    else:
+        run_delete = Confirm.ask(
+            "Delete media from Xibo that is NOT present locally?",
+            default=cfg.delete_remote_not_local,
+        )
 
     # Always persist delete choice to .env
     env_data2 = read_env_file(env_path)
     env_data2["DELETE_REMOTE_NOT_LOCAL"] = "true" if run_delete else "false"
     write_env_file(env_path, env_data2)
     ui_ok("Saved deletion choice to .env (DELETE_REMOTE_NOT_LOCAL)")
+
+    # CLI flags may override behavior
+    if args.dry_run:
+        cfg.dry_run = True
 
     ui_info(f"Local media dir: {cfg.local_media_dir}")
     ui_info(f"Compare mode: {cfg.compare_mode} | Auth mode: {cfg.auth_mode} | Dry run: {cfg.dry_run}")
