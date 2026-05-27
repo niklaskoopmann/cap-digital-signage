@@ -137,3 +137,199 @@ The requested operation requires elevation (Run as administrator).
 
 STDERR:
 
+2026-05-26 19:59:12,528 | INFO | Step 1: Connecting to Wi-Fi hotspot SSID='XIBO-HOTSPOT' ...
+2026-05-26 19:59:12,812 | INFO | Wi-Fi profile 'niklas-XPS-13' already exists.
+2026-05-26 19:59:13,160 | ERROR | FAILED: Failed to start Wi-Fi connection.
+STDOUT:
+Network shell commands need location permission to access WLAN information. Turn on Location services on the Location page in Privacy & security settings.
+Here is the URI for the Location page in the Settings app: ms-settings:privacy-location
+To open the Location page in the Settings app, run the following command:
+start ms-settings:privacy-location
+
+Or, to open the Location page from the Run dialog box, press Windows logo key + R, and then copy and paste the URI above.
+
+Function WlanGetAvailableNetworkList returns error 5:
+The requested operation requires elevation (Run as administrator).
+
+
+STDERR:
+Traceback (most recent call last):
+  File "C:\Code\cap-digital-signage\scripts\sync_xibo.py", line 1083, in main
+    WifiManager.connect(
+    ~~~~~~~~~~~~~~~~~~~^
+        ssid=cfg.wifi_ssid,
+        ^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        timeout_seconds=cfg.wifi_timeout,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Code\cap-digital-signage\scripts\sync_xibo.py", line 470, in connect
+    raise RuntimeError(
+    ...<2 lines>...
+    )
+RuntimeError: Failed to start Wi-Fi connection.
+STDOUT:
+Network shell commands need location permission to access WLAN information. Turn on Location services on the Location page in Privacy & security settings.
+Here is the URI for the Location page in the Settings app: ms-settings:privacy-location
+To open the Location page in the Settings app, run the following command:
+start ms-settings:privacy-location
+
+Or, to open the Location page from the Run dialog box, press Windows logo key + R, and then copy and paste the URI above.
+
+Function WlanGetAvailableNetworkList returns error 5:
+The requested operation requires elevation (Run as administrator).
+
+
+STDERR:
+
+2026-05-26 20:00:22,769 | INFO | Step 1: Connecting to Wi-Fi hotspot SSID='XIBO-HOTSPOT' ...
+2026-05-26 20:00:23,076 | INFO | Wi-Fi profile 'niklas-XPS-13' already exists.
+2026-05-26 20:00:23,424 | ERROR | FAILED: Failed to start Wi-Fi connection.
+STDOUT:
+Network shell commands need location permission to access WLAN information. Turn on Location services on the Location page in Privacy & security settings.
+Here is the URI for the Location page in the Settings app: ms-settings:privacy-location
+To open the Location page in the Settings app, run the following command:
+start ms-settings:privacy-location
+
+Or, to open the Location page from the Run dialog box, press Windows logo key + R, and then copy and paste the URI above.
+
+Function WlanGetAvailableNetworkList returns error 5:
+Access is denied.
+
+
+
+STDERR:
+Traceback (most recent call last):
+  File "C:\Code\cap-digital-signage\scripts\sync_xibo.py", line 1083, in main
+    WifiManager.connect(
+    ~~~~~~~~~~~~~~~~~~~^
+        ssid=cfg.wifi_ssid,
+        ^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        timeout_seconds=cfg.wifi_timeout,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Code\cap-digital-signage\scripts\sync_xibo.py", line 470, in connect
+    raise RuntimeError(
+    ...<2 lines>...
+    )
+RuntimeError: Failed to start Wi-Fi connection.
+STDOUT:
+Network shell commands need location permission to access WLAN information. Turn on Location services on the Location page in Privacy & security settings.
+Here is the URI for the Location page in the Settings app: ms-settings:privacy-location
+To open the Location page in the Settings app, run the following command:
+start ms-settings:privacy-location
+
+Or, to open the Location page from the Run dialog box, press Windows logo key + R, and then copy and paste the URI above.
+
+Function WlanGetAvailableNetworkList returns error 5:
+Access is denied.
+
+
+
+STDERR:
+
+2026-05-26 20:01:26,783 | INFO | Step 1: Connecting to Wi-Fi hotspot SSID='XIBO-HOTSPOT' ...
+2026-05-26 20:01:27,091 | INFO | Wi-Fi profile 'niklas-XPS-13' already exists.
+2026-05-26 20:01:27,493 | ERROR | FAILED: Failed to start Wi-Fi connection.
+STDOUT:
+Network shell commands need location permission to access WLAN information. Turn on Location services on the Location page in Privacy & security settings.
+Here is the URI for the Location page in the Settings app: ms-settings:privacy-location
+To open the Location page in the Settings app, run the following command:
+start ms-settings:privacy-location
+
+Or, to open the Location page from the Run dialog box, press Windows logo key + R, and then copy and paste the URI above.
+
+Function WlanGetAvailableNetworkList returns error 5:
+Access is denied.
+
+
+
+STDERR:
+Traceback (most recent call last):
+  File "C:\Code\cap-digital-signage\scripts\sync_xibo.py", line 1083, in main
+    WifiManager.connect(
+    ~~~~~~~~~~~~~~~~~~~^
+        ssid=cfg.wifi_ssid,
+        ^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        timeout_seconds=cfg.wifi_timeout,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Code\cap-digital-signage\scripts\sync_xibo.py", line 470, in connect
+    raise RuntimeError(
+    ...<2 lines>...
+    )
+RuntimeError: Failed to start Wi-Fi connection.
+STDOUT:
+Network shell commands need location permission to access WLAN information. Turn on Location services on the Location page in Privacy & security settings.
+Here is the URI for the Location page in the Settings app: ms-settings:privacy-location
+To open the Location page in the Settings app, run the following command:
+start ms-settings:privacy-location
+
+Or, to open the Location page from the Run dialog box, press Windows logo key + R, and then copy and paste the URI above.
+
+Function WlanGetAvailableNetworkList returns error 5:
+Access is denied.
+
+
+
+STDERR:
+
+2026-05-26 20:27:28,513 | ERROR | FAILED: Failed to parse: http://10:42.0.1/api/authorize/access_token
+Traceback (most recent call last):
+  File "C:\Code\cap-digital-signage\scripts\.venv\Lib\site-packages\urllib3\util\url.py", line 423, in parse_url
+    host, port = _HOST_PORT_RE.match(host_port).groups()  # type: ignore[union-attr]
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'groups'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Code\cap-digital-signage\scripts\.venv\Lib\site-packages\requests\models.py", line 509, in prepare_url
+    scheme, auth, host, port, path, query, fragment = parse_url(url)
+                                                      ~~~~~~~~~^^^^^
+  File "C:\Code\cap-digital-signage\scripts\.venv\Lib\site-packages\urllib3\util\url.py", line 449, in parse_url
+    raise LocationParseError(source_url) from e
+urllib3.exceptions.LocationParseError: Failed to parse: http://10:42.0.1/api/authorize/access_token
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Code\cap-digital-signage\scripts\sync_xibo_no_wifi.py", line 840, in main
+    xibo.authenticate_oauth(cfg.cms_client_id, cfg.cms_client_secret)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Code\cap-digital-signage\scripts\sync_xibo_no_wifi.py", line 351, in authenticate_oauth
+    r = self.session.post(self._token_url(), data=payload, timeout=self.timeout, verify=self.verify_tls)
+  File "C:\Code\cap-digital-signage\scripts\.venv\Lib\site-packages\requests\sessions.py", line 712, in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Code\cap-digital-signage\scripts\.venv\Lib\site-packages\requests\sessions.py", line 635, in request
+    prep = self.prepare_request(req)
+  File "C:\Code\cap-digital-signage\scripts\.venv\Lib\site-packages\requests\sessions.py", line 541, in prepare_request
+    p.prepare(
+    ~~~~~~~~~^
+        method=method.upper(),
+        ^^^^^^^^^^^^^^^^^^^^^^
+    ...<10 lines>...
+        hooks=merge_hooks(request.hooks, self.hooks),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Code\cap-digital-signage\scripts\.venv\Lib\site-packages\requests\models.py", line 439, in prepare
+    self.prepare_url(url, params)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Code\cap-digital-signage\scripts\.venv\Lib\site-packages\requests\models.py", line 511, in prepare_url
+    raise InvalidURL(*e.args)
+requests.exceptions.InvalidURL: Failed to parse: http://10:42.0.1/api/authorize/access_token
+2026-05-26 20:28:00,775 | ERROR | FAILED: OAuth token request failed (401): {"error":"invalid_client","error_description":"Client authentication failed","message":"Client authentication failed"}
+Traceback (most recent call last):
+  File "C:\Code\cap-digital-signage\scripts\sync_xibo_no_wifi.py", line 840, in main
+    xibo.authenticate_oauth(cfg.cms_client_id, cfg.cms_client_secret)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Code\cap-digital-signage\scripts\sync_xibo_no_wifi.py", line 353, in authenticate_oauth
+    raise RuntimeError(f"OAuth token request failed ({r.status_code}): {r.text}")
+RuntimeError: OAuth token request failed (401): {"error":"invalid_client","error_description":"Client authentication failed","message":"Client authentication failed"}
