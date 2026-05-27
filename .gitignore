@@ -2,3 +2,4 @@
 .env
 scripts/.env
 scripts/secrets.json
+*.log
