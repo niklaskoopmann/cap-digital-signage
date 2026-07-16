@@ -160,7 +160,10 @@ After the CMS starts for the first time:
 3. Go to Administration → Applications.
 4. Create a new Application using Client Credentials.
 5. Copy the `Client Id` and `Client Secret` into `scripts/.env`.
-6. Optionally create a dedicated folder for synced media and store the folder ID in `MANAGED_FOLDER_ID`.
+6. Edit the created Application.
+7. Under General, select `Authorisation Code`, `Client Credentials` and `Is Confidential`
+8. Under Sharing, select all Scopes.
+9. Optionally create a dedicated folder for synced media and store the folder ID in `MANAGED_FOLDER_ID`.
 
 ## Troubleshooting
 
