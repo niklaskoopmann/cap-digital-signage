@@ -3,8 +3,11 @@ from __future__ import annotations
 import argparse
 import getpass
 import hashlib
+import json
 import logging
 import os
+import subprocess
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,14 +40,15 @@ console = Console()
 # =============================================================================
 
 def _strip_inline_comment(value: str) -> str:
-    """Strip inline comments of the form: VALUE  # comment
+    """Strip inline comments of the form:  VALUE  # comment
 
     Notes:
     - Only strips when a '#' is preceded by whitespace.
-    - Allows values containing '#', as long as you don't put a space before '#'.
-      Example: TOKEN=abc#123  (kept)
-               TOKEN=abc #123 (comment stripped)
+    - Allows passwords/tokens containing '#', as long as you don't put a space before '#'.
+      Example: WIFI_PASSWORD=abc#123  (kept)
+               WIFI_PASSWORD=abc #123 (comment stripped)
     """
+    # Find first occurrence of whitespace + '#'
     for i in range(len(value) - 1):
         if value[i].isspace() and value[i + 1] == '#':
             return value[:i].strip()
@@ -109,6 +113,7 @@ def write_env_file(env_path: Path, values: Dict[str, str], original_lines: Optio
 # =============================================================================
 
 def ui_header(title: str, subtitle: Optional[str] = None) -> None:
+    """Show a nice header panel."""
     txt = Text()
     txt.append(title, style="bold white")
     if subtitle:
@@ -136,6 +141,7 @@ def ui_warn(msg: str) -> None:
 def ui_settings_table(env_data: Dict[str, str]) -> None:
     """Show a summary table of relevant settings (secrets masked)."""
     keys = [
+        "WIFI_SSID", "WIFI_PROFILE", "WIFI_AUTH", "WIFI_CIPHER", "WIFI_CONNECT_TIMEOUT_SECONDS",
         "CMS_BASE_URL", "CMS_VERIFY_TLS", "CMS_TIMEOUT_SECONDS",
         "AUTH_MODE", "CMS_CLIENT_ID", "CMS_CLIENT_SECRET",
         "LOCAL_MEDIA_DIR", "MEDIA_EXTENSIONS", "COMPARE_MODE",
@@ -157,7 +163,7 @@ def ui_settings_table(env_data: Dict[str, str]) -> None:
 
     for k in keys:
         v = env_data.get(k, "")
-        if k == "CMS_CLIENT_SECRET":
+        if k in ("WIFI_PASSWORD", "CMS_CLIENT_SECRET"):
             v = "******" if v else ""
         table.add_row(k, v)
 
@@ -165,6 +171,7 @@ def ui_settings_table(env_data: Dict[str, str]) -> None:
 
 
 def prompt_edit(key: str, current: str, help_text: str = "", validator=None) -> str:
+    """Rich prompt for a setting; ENTER keeps current."""
     if help_text:
         console.print(f"[dim]{help_text}[/dim]")
     while True:
@@ -179,6 +186,7 @@ def prompt_edit(key: str, current: str, help_text: str = "", validator=None) -> 
 
 
 def prompt_password(key: str, current: str) -> str:
+    """Masked password input. ENTER keeps current."""
     shown = "******" if current else ""
     console.print(f"[dim]{key} (press ENTER to keep current: {shown})[/dim]")
     val = getpass.getpass(f"{key}: ").strip()
@@ -191,6 +199,14 @@ def prompt_password(key: str, current: str) -> str:
 
 @dataclass
 class Config:
+    # Wi-Fi
+    wifi_ssid: str
+    wifi_profile: str
+    wifi_password: str
+    wifi_auth: str
+    wifi_cipher: str
+    wifi_timeout: int
+
     # Xibo
     cms_base_url: str
     cms_verify_tls: bool
@@ -240,11 +256,24 @@ def getenv_int(name: str, default: int) -> int:
 
 def load_config() -> Config:
     """Load configuration from environment variables (after .env is loaded)."""
+    wifi_ssid = os.getenv("WIFI_SSID", "").strip()
+    if not wifi_ssid:
+        raise ValueError("WIFI_SSID must be set")
+
+    wifi_profile = os.getenv("WIFI_PROFILE", wifi_ssid).strip() or wifi_ssid
+    wifi_password = os.getenv("WIFI_PASSWORD", "").strip()
+    wifi_auth = os.getenv("WIFI_AUTH", "WPA2PSK").strip()
+    wifi_cipher = os.getenv("WIFI_CIPHER", "AES").strip()
+
+    # If network is not open, we need a password
+    if wifi_auth.lower() != "open" and not wifi_password:
+        raise ValueError("WIFI_PASSWORD must be set unless WIFI_AUTH=open")
+
     cms_base_url = os.getenv("CMS_BASE_URL", "").strip().rstrip("/")
     if not cms_base_url:
         raise ValueError("CMS_BASE_URL must be set (e.g. http://192.168.1.1)")
 
-    auth_mode = os.getenv("AUTH_MODE", "oauth").strip().lower()
+    auth_mode = os.getenv("AUTH_MODE", "none").strip().lower()
     if auth_mode not in ("none", "oauth"):
         raise ValueError("AUTH_MODE must be 'none' or 'oauth'")
 
@@ -265,6 +294,13 @@ def load_config() -> Config:
         raise ValueError("COMPARE_MODE must be 'filename' or 'hash'")
 
     return Config(
+        wifi_ssid=wifi_ssid,
+        wifi_profile=wifi_profile,
+        wifi_password=wifi_password,
+        wifi_auth=wifi_auth,
+        wifi_cipher=wifi_cipher,
+        wifi_timeout=getenv_int("WIFI_CONNECT_TIMEOUT_SECONDS", 30),
+
         cms_base_url=cms_base_url,
         cms_verify_tls=getenv_bool("CMS_VERIFY_TLS", False),
         cms_timeout=getenv_int("CMS_TIMEOUT_SECONDS", 30),
@@ -297,6 +333,7 @@ def load_config() -> Config:
 
 
 def setup_logging(level: str, log_file: Optional[str], scripts_dir: Path) -> None:
+    """Configure logging to console + optional file."""
     handlers: List[logging.Handler] = [logging.StreamHandler()]
 
     if log_file:
@@ -309,6 +346,161 @@ def setup_logging(level: str, log_file: Optional[str], scripts_dir: Path) -> Non
         format="%(asctime)s | %(levelname)s | %(message)s",
         handlers=handlers,
     )
+
+
+# =============================================================================
+# Wi-Fi management (Windows)
+# =============================================================================
+
+class WifiManager:
+    """Connect/disconnect to Wi-Fi hotspot on Windows using netsh."""
+
+    @staticmethod
+    def _run_netsh(args: List[str]) -> subprocess.CompletedProcess:
+        cmd = ["netsh"] + args
+        logging.debug("Running: %s", " ".join(cmd))
+        return subprocess.run(cmd, capture_output=True, text=True, check=False)
+
+    @staticmethod
+    def current_ssid() -> Optional[str]:
+        """Return the currently connected SSID, or None."""
+        res = WifiManager._run_netsh(["wlan", "show", "interfaces"])
+        if res.returncode != 0:
+            return None
+
+        for line in res.stdout.splitlines():
+            if ":" in line:
+                left, right = line.split(":", 1)
+                if left.strip() == "SSID":
+                    return right.strip() or None
+        return None
+
+    @staticmethod
+    def profile_exists(profile_name: str) -> bool:
+        """Check if a Wi-Fi profile exists in Windows."""
+        res = WifiManager._run_netsh(["wlan", "show", "profiles"])
+        if res.returncode != 0:
+            return False
+        return profile_name.lower() in res.stdout.lower()
+
+    @staticmethod
+    def _build_profile_xml(ssid: str, auth: str, cipher: str, password: str) -> str:
+        """Build WLAN profile XML for WPA/WPA2 PSK or open networks."""
+        # Minimal XML escaping
+        ssid_xml = ssid.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+        if auth.lower() == "open":
+            security_block = """
+            <security>
+                <authEncryption>
+                    <authentication>open</authentication>
+                    <encryption>none</encryption>
+                    <useOneX>false</useOneX>
+                </authEncryption>
+            </security>
+            """
+        else:
+            security_block = f"""
+            <security>
+                <authEncryption>
+                    <authentication>{auth}</authentication>
+                    <encryption>{cipher}</encryption>
+                    <useOneX>false</useOneX>
+                </authEncryption>
+                <sharedKey>
+                    <keyType>passPhrase</keyType>
+                    <protected>false</protected>
+                    <keyMaterial>{password}</keyMaterial>
+                </sharedKey>
+            </security>
+            """
+
+        return f"""<?xml version=\"1.0\"?>
+<WLANProfile xmlns=\"http://www.microsoft.com/networking/WLAN/profile/v1\">
+    <name>{ssid_xml}</name>
+    <SSIDConfig>
+        <SSID>
+            <name>{ssid_xml}</name>
+        </SSID>
+    </SSIDConfig>
+    <connectionType>ESS</connectionType>
+    <connectionMode>auto</connectionMode>
+    <MSM>
+        {security_block}
+    </MSM>
+</WLANProfile>
+"""
+
+    @staticmethod
+    def ensure_profile(ssid: str, profile_name: str, auth: str, cipher: str, password: str) -> None:
+        """Ensure a WLAN profile exists. If not, import it from XML."""
+        if WifiManager.profile_exists(profile_name):
+            logging.info("Wi-Fi profile '%s' already exists.", profile_name)
+            return
+
+        logging.info("Wi-Fi profile '%s' not found. Creating/importing profile ...", profile_name)
+        xml = WifiManager._build_profile_xml(ssid=ssid, auth=auth, cipher=cipher, password=password)
+
+        with tempfile.NamedTemporaryFile("w", suffix=".xml", delete=False, encoding="utf-8") as f:
+            xml_path = f.name
+            f.write(xml)
+
+        try:
+            res = WifiManager._run_netsh(["wlan", "add", "profile", f"filename={xml_path}", "user=current"])
+            if res.returncode != 0:
+                raise RuntimeError(
+                    "Failed to add Wi-Fi profile.\n"
+                    f"STDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}"
+                )
+            logging.info("Wi-Fi profile imported successfully.")
+        finally:
+            try:
+                os.remove(xml_path)
+            except Exception:
+                pass
+
+    @staticmethod
+    def connect(ssid: str, profile: str, auth: str, cipher: str, password: str, timeout_seconds: int = 30) -> None:
+        """Connect to Wi-Fi hotspot."""
+        logging.info("Step 1: Connecting to Wi-Fi hotspot SSID='%s' ...", ssid)
+
+        WifiManager.ensure_profile(ssid=ssid, profile_name=profile, auth=auth, cipher=cipher, password=password)
+
+        res = WifiManager._run_netsh(["wlan", "connect", f"name={profile}"])
+        if res.returncode != 0:
+            raise RuntimeError(
+                "Failed to start Wi-Fi connection.\n"
+                f"STDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}"
+            )
+
+        # Wait until connected to correct SSID
+        start = time.time()
+        while time.time() - start < timeout_seconds:
+            cur = WifiManager.current_ssid()
+            if cur == ssid:
+                logging.info("Connected to Wi-Fi SSID='%s'.", ssid)
+                return
+            time.sleep(1)
+
+        raise TimeoutError(
+            f"Timed out after {timeout_seconds}s waiting for Wi-Fi SSID='{ssid}'. "
+            f"Current SSID='{WifiManager.current_ssid()}'"
+        )
+
+    @staticmethod
+    def disconnect() -> None:
+        """Disconnect from Wi-Fi."""
+        logging.info("Final step: Disconnecting from Wi-Fi hotspot ...")
+        res = WifiManager._run_netsh(["wlan", "disconnect"])
+        if res.returncode != 0:
+            logging.warning(
+                "Wi-Fi disconnect returned %s.\nSTDOUT:\n%s\nSTDERR:\n%s",
+                res.returncode,
+                res.stdout,
+                res.stderr,
+            )
+        else:
+            logging.info("Disconnected from Wi-Fi.")
 
 
 # =============================================================================
@@ -331,27 +523,32 @@ class XiboClient:
         return f"{self.base_url}/api{path}"
 
     def _token_url(self) -> str:
+        # Standard Xibo endpoint for client_credentials
         return f"{self.base_url}/api/authorize/access_token"
 
     @staticmethod
     def _extract_data(json_obj):
+        # Xibo frequently wraps responses in {"data": [...]} 
         if isinstance(json_obj, dict) and "data" in json_obj:
             return json_obj["data"]
         return json_obj
 
     def authenticate_oauth(self, client_id: str, client_secret: str) -> None:
-        """OAuth2 client credentials flow. Stores token in session headers."""
+        """OAuth2 client credentials flow.
+
+        Stores token in session headers.
+        """
         self._oauth_client_id = client_id
         self._oauth_client_secret = client_secret
 
+        url = self._token_url()
         payload = {
             "grant_type": "client_credentials",
             "client_id": client_id,
             "client_secret": client_secret,
         }
-        r = self.session.post(self._token_url(), data=payload, timeout=self.timeout, verify=self.verify_tls)
+        r = self.session.post(url, data=payload, timeout=self.timeout, verify=self.verify_tls)
         if r.status_code != 200:
-            # Try to include JSON error when available
             body_text = r.text
             try:
                 body_json = r.json()
@@ -370,19 +567,17 @@ class XiboClient:
         if not token:
             raise RuntimeError(f"OAuth response missing access_token: {r.text}")
 
-        # expires_in may be missing; default to 5 minutes
         expires_in = body.get("expires_in") if isinstance(body, dict) else None
         try:
             expires_val = float(expires_in) if expires_in is not None else 300.0
         except Exception:
             expires_val = 300.0
 
-        self._oauth_token_expires_at = time.time() + expires_val - 60.0  # refresh 60s early
+        self._oauth_token_expires_at = time.time() + expires_val - 60.0
         self.session.headers.update({"Authorization": f"Bearer {token}"})
         logging.info("Authenticated via OAuth.")
 
     def _ensure_token_valid(self) -> None:
-        # If we don't have an Authorization header but credentials are available, authenticate.
         if ("Authorization" not in self.session.headers) and self._oauth_client_id and self._oauth_client_secret:
             logging.info("No OAuth token present - obtaining new token...")
             self.authenticate_oauth(self._oauth_client_id, self._oauth_client_secret)
@@ -394,7 +589,7 @@ class XiboClient:
                 self.authenticate_oauth(self._oauth_client_id, self._oauth_client_secret)
 
     def _request(self, method: str, url: str, *, retry_on_401: bool = True, **kwargs):
-        """Wrapper that refreshes OAuth token and retries once on 401/403."""
+        """Wrapper that refreshes OAuth token and retries once on 401."""
         self._ensure_token_valid()
         r = self.session.request(method, url, timeout=self.timeout, verify=self.verify_tls, **kwargs)
         if retry_on_401 and r.status_code in (401, 403) and self._oauth_client_id and self._oauth_client_secret:
@@ -404,6 +599,7 @@ class XiboClient:
         return r
 
     def health_check(self) -> None:
+        """Simple call to verify API availability and auth status."""
         r = self._request(
             "GET",
             self._api_url("/library"),
@@ -417,7 +613,8 @@ class XiboClient:
             raise RuntimeError(f"API check failed ({r.status_code}): {r.text}")
 
     def list_library(self, managed_tag: Optional[str], folder_id: Optional[str]) -> List[dict]:
-        logging.info("Step 2: Fetching CMS Library entries ...")
+        """Fetch library items, optionally filtered by tag and/or folder."""
+        logging.info("Step 3: Fetching CMS Library entries ...")
 
         items: List[dict] = []
         start = 0
@@ -449,6 +646,7 @@ class XiboClient:
         return items
 
     def tag_media(self, media_id: str, tag: str) -> None:
+        """Add a tag to a media item."""
         r = self._request(
             "POST",
             self._api_url(f"/library/{media_id}/tag"),
@@ -466,7 +664,7 @@ class XiboClient:
         preferred_field: str,
         dry_run: bool,
     ) -> Optional[dict]:
-        """Upload media to Xibo with a progress bar."""
+        """Upload media to Xibo with a rich progress bar."""
         logging.info("Uploading: %s", file_path.name)
         if dry_run:
             logging.info("[DRY_RUN] Would upload '%s'", file_path)
@@ -549,12 +747,11 @@ class XiboClient:
                         f.close()
                     except Exception:
                         pass
-        
-        # If we reach here without returning, raise with last error
 
         raise RuntimeError(last_error or "Upload failed (unknown reason)")
 
     def delete_media(self, media_id: str, dry_run: bool) -> None:
+        """Delete a media item from the library."""
         logging.info("Deleting mediaId=%s ...", media_id)
         if dry_run:
             logging.info("[DRY_RUN] Would delete mediaId=%s", media_id)
@@ -570,6 +767,7 @@ class XiboClient:
             raise RuntimeError(f"Delete mediaId={media_id} failed ({r.status_code}): {r.text}")
 
     def collect_now(self, display_group_id: str, dry_run: bool) -> None:
+        """Trigger Collect Now to refresh player content (optional)."""
         logging.info("Triggering Collect Now for displayGroupId=%s ...", display_group_id)
         if dry_run:
             logging.info("[DRY_RUN] Would call collectNow for displayGroupId=%s", display_group_id)
@@ -588,6 +786,7 @@ class XiboClient:
 # =============================================================================
 
 def sha256_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
+    """Compute sha256 for a file."""
     h = hashlib.sha256()
     with open(path, "rb") as f:
         while True:
@@ -599,6 +798,7 @@ def sha256_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
 
 
 def list_local_media(media_dir: Path, extensions: Tuple[str, ...]) -> List[Path]:
+    """Find all files in media_dir matching extensions (recursive)."""
     if not media_dir.exists():
         raise FileNotFoundError(f"Local media directory does not exist: {media_dir.resolve()}")
 
@@ -611,6 +811,7 @@ def list_local_media(media_dir: Path, extensions: Tuple[str, ...]) -> List[Path]
 
 
 def build_local_index(files: List[Path], mode: str, hash_tag_prefix: str) -> Dict[str, Path]:
+    """Map local keys -> file paths."""
     idx: Dict[str, Path] = {}
     if mode == "filename":
         for f in files:
@@ -622,6 +823,7 @@ def build_local_index(files: List[Path], mode: str, hash_tag_prefix: str) -> Dic
 
 
 def build_remote_index(items: List[dict], mode: str, hash_tag_prefix: str) -> Dict[str, dict]:
+    """Map remote keys -> item dict."""
     idx: Dict[str, dict] = {}
     for it in items:
         if mode == "filename":
@@ -655,10 +857,11 @@ def build_remote_index(items: List[dict], mode: str, hash_tag_prefix: str) -> Di
 
 
 # =============================================================================
-# Config wizard
+# Config wizard (runs only if user chooses to override)
 # =============================================================================
 
 def config_wizard(env_path: Path) -> None:
+    """Interactive editor; persists updated settings back to .env."""
     env_data = read_env_file(env_path)
     original_lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
 
@@ -676,8 +879,43 @@ def config_wizard(env_path: Path) -> None:
         if v.lower() not in ("none", "oauth"):
             raise ValueError("Allowed: none | oauth")
 
+    def must_be_wifi_auth(v: str):
+        if v.lower() not in ("wpa2psk", "wpapsk", "open"):
+            raise ValueError("Allowed: WPA2PSK | WPAPSK | open")
+
+    def must_be_wifi_cipher(v: str):
+        if v.upper() not in ("AES", "TKIP"):
+            raise ValueError("Allowed: AES | TKIP")
+
     def get(k: str, default: str) -> str:
         return env_data.get(k, default)
+
+    # Wi-Fi
+    env_data["WIFI_SSID"] = prompt_edit("WIFI_SSID", get("WIFI_SSID", "XIBO-HOTSPOT"))
+    env_data["WIFI_PROFILE"] = prompt_edit(
+        "WIFI_PROFILE",
+        get("WIFI_PROFILE", env_data["WIFI_SSID"]),
+        help_text="Windows WLAN profile name (often same as SSID).",
+    )
+    env_data["WIFI_PASSWORD"] = prompt_password("WIFI_PASSWORD", get("WIFI_PASSWORD", ""))
+    env_data["WIFI_AUTH"] = prompt_edit(
+        "WIFI_AUTH",
+        get("WIFI_AUTH", "WPA2PSK"),
+        help_text="WPA2PSK | WPAPSK | open",
+        validator=must_be_wifi_auth,
+    )
+    env_data["WIFI_CIPHER"] = prompt_edit(
+        "WIFI_CIPHER",
+        get("WIFI_CIPHER", "AES"),
+        help_text="AES | TKIP",
+        validator=must_be_wifi_cipher,
+    )
+    env_data["WIFI_CONNECT_TIMEOUT_SECONDS"] = prompt_edit(
+        "WIFI_CONNECT_TIMEOUT_SECONDS",
+        get("WIFI_CONNECT_TIMEOUT_SECONDS", "30"),
+        help_text="Seconds to wait for Wi-Fi connection.",
+        validator=lambda v: int(v),
+    )
 
     # CMS
     env_data["CMS_BASE_URL"] = prompt_edit(
@@ -701,7 +939,7 @@ def config_wizard(env_path: Path) -> None:
     # Auth
     env_data["AUTH_MODE"] = prompt_edit(
         "AUTH_MODE",
-        get("AUTH_MODE", "oauth"),
+        get("AUTH_MODE", "none"),
         help_text="none (no auth header) | oauth (OAuth2 client_credentials)",
         validator=must_be_auth,
     )
@@ -717,6 +955,7 @@ def config_wizard(env_path: Path) -> None:
             get("CMS_CLIENT_SECRET", ""),
         )
     else:
+        # Keep values if already set; do not delete.
         env_data.setdefault("CMS_CLIENT_ID", get("CMS_CLIENT_ID", ""))
         env_data.setdefault("CMS_CLIENT_SECRET", get("CMS_CLIENT_SECRET", ""))
 
@@ -810,7 +1049,7 @@ def main() -> int:
     scripts_dir = Path(__file__).resolve().parent
     env_path = scripts_dir / ".env"
 
-    parser = argparse.ArgumentParser(description="Sync local media to Xibo CMS")
+    parser = argparse.ArgumentParser(description="Sync local media to Xibo CMS (with Wi-Fi connect)")
     parser.add_argument("--config", action="store_true", help="Run configuration wizard and exit")
     parser.add_argument("--yes", "-y", action="store_true", help="Non-interactive: accept defaults and skip prompts")
     parser.add_argument("--dry-run", action="store_true", help="Preview actions without uploading/deleting")
@@ -819,7 +1058,7 @@ def main() -> int:
     parser.set_defaults(delete=None)
     args = parser.parse_args()
 
-    ui_header("Xibo Media Sync", "Sync local media to Xibo CMS (assumes you are already on the hotspot)")
+    ui_header("Xibo Media Sync", "Sync local media to Xibo CMS via Wi-Fi hotspot")
 
     # Show current .env settings if present
     env_data = read_env_file(env_path)
@@ -831,7 +1070,6 @@ def main() -> int:
     console.print()
     if args.config:
         config_wizard(env_path)
-        # reload env_data and exit
         return 0
 
     override = False if args.yes else Confirm.ask(
@@ -856,7 +1094,6 @@ def main() -> int:
     # Run option: delete remote?
     console.print()
     ui_header("Run Options", "Choose whether remote-only media should be deleted this run")
-    # CLI flag overrides interactive prompt when provided
     if args.delete is not None:
         run_delete = bool(args.delete)
     elif args.yes:
@@ -873,18 +1110,31 @@ def main() -> int:
     write_env_file(env_path, env_data2)
     ui_ok("Saved deletion choice to .env (DELETE_REMOTE_NOT_LOCAL)")
 
-    # CLI flags may override behavior
     if args.dry_run:
         cfg.dry_run = True
 
     ui_info(f"Local media dir: {cfg.local_media_dir}")
     ui_info(f"Compare mode: {cfg.compare_mode} | Auth mode: {cfg.auth_mode} | Dry run: {cfg.dry_run}")
 
+    wifi_connected = False
     changes_made = False
 
     try:
-        # 1) Connect to Xibo API
-        ui_info("Step 1: Checking Xibo API availability ...")
+        # 1) Connect to Wi-Fi hotspot
+        ui_info("Step 1: Connecting to Wi-Fi hotspot ...")
+        WifiManager.connect(
+            ssid=cfg.wifi_ssid,
+            profile=cfg.wifi_profile,
+            auth=cfg.wifi_auth,
+            cipher=cfg.wifi_cipher,
+            password=cfg.wifi_password,
+            timeout_seconds=cfg.wifi_timeout,
+        )
+        wifi_connected = True
+        ui_ok(f"Connected to SSID '{cfg.wifi_ssid}'")
+
+        # 2) Connect to Xibo API
+        ui_info("Step 2: Checking Xibo API availability ...")
         xibo = XiboClient(cfg.cms_base_url, cfg.cms_verify_tls, cfg.cms_timeout)
 
         if cfg.auth_mode == "oauth":
@@ -894,27 +1144,27 @@ def main() -> int:
         xibo.health_check()
         ui_ok("Xibo API reachable")
 
-        # 2) Scan local
-        ui_info("Step 2: Scanning local media files ...")
+        # 3) Scan local
+        ui_info("Step 3: Scanning local media files ...")
         local_files = list_local_media(cfg.local_media_dir, cfg.media_extensions)
         ui_ok(f"Found {len(local_files)} local media file(s)")
         local_index = build_local_index(local_files, cfg.compare_mode, cfg.hash_tag_prefix)
 
-        # 3) Scan remote (filtered by MANAGED_TAG / folder for safety)
-        ui_info("Step 3: Fetching Xibo CMS library ...")
+        # 4) Scan remote (filtered by MANAGED_TAG / folder for safety)
+        ui_info("Step 4: Fetching Xibo CMS library ...")
         remote_items = xibo.list_library(cfg.managed_tag, cfg.managed_folder_id)
         remote_index = build_remote_index(remote_items, cfg.compare_mode, cfg.hash_tag_prefix)
         ui_ok(f"Fetched {len(remote_items)} remote library item(s) (filtered)")
 
-        # 4) Diff
-        ui_info("Step 4: Calculating diff ...")
+        # 5) Diff
+        ui_info("Step 5: Calculating diff ...")
         to_upload = sorted(set(local_index.keys()) - set(remote_index.keys()))
         to_delete = sorted(set(remote_index.keys()) - set(local_index.keys()))
         ui_ok(f"To upload: {len(to_upload)} | Remote-only: {len(to_delete)}")
 
-        # 5) Upload new files
+        # 6) Upload new files
         if cfg.upload_new_local and to_upload:
-            ui_info("Step 5: Uploading new media ...")
+            ui_info("Step 6: Uploading new media ...")
             for key in to_upload:
                 f = local_index[key]
                 tags = [cfg.managed_tag]
@@ -932,11 +1182,11 @@ def main() -> int:
                 changes_made = True
             ui_ok("Uploads complete")
         else:
-            ui_info("Step 5: Upload skipped (nothing to upload or UPLOAD_NEW_LOCAL=false)")
+            ui_info("Step 6: Upload skipped (nothing to upload or UPLOAD_NEW_LOCAL=false)")
 
-        # 6) Delete remote-only media (optional)
+        # 7) Delete remote-only media (optional)
         if run_delete and to_delete:
-            ui_info("Step 6: Deleting remote-only media ...")
+            ui_info("Step 7: Deleting remote-only media ...")
 
             if cfg.only_delete_managed_tag:
                 ui_warn(f"Safety ON: Only deleting items with MANAGED_TAG='{cfg.managed_tag}'")
@@ -972,15 +1222,15 @@ def main() -> int:
 
             ui_ok("Deletion complete")
         else:
-            ui_info("Step 6: Delete skipped (disabled or none to delete)")
+            ui_info("Step 7: Delete skipped (disabled or none to delete)")
 
-        # 7) Trigger refresh if configured
+        # 8) Trigger refresh if configured
         if cfg.trigger_collectnow_on_changes and changes_made and cfg.display_group_id:
-            ui_info("Step 7: Triggering player refresh (Collect Now) ...")
+            ui_info("Step 8: Triggering player refresh (Collect Now) ...")
             xibo.collect_now(cfg.display_group_id, dry_run=cfg.dry_run)
             ui_ok("Collect Now triggered")
         else:
-            ui_info("Step 7: Refresh skipped (no changes, DISPLAY_GROUP_ID empty, or disabled)")
+            ui_info("Step 8: Refresh skipped (no changes, DISPLAY_GROUP_ID empty, or disabled)")
 
         ui_ok("SUCCESS: Sync completed")
         return 0
@@ -989,6 +1239,12 @@ def main() -> int:
         logging.exception("FAILED: %s", e)
         ui_error(f"Sync failed: {e}")
         return 2
+
+    finally:
+        if wifi_connected:
+            ui_info("Disconnecting from hotspot ...")
+            WifiManager.disconnect()
+            ui_ok("Disconnected")
 
 
 if __name__ == "__main__":

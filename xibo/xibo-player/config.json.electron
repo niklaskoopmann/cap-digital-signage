@@ -1,0 +1,36 @@
+{
+  "cmsUrl": "http://localhost",
+  "cmsKey": "cmskey",
+  "displayName": "Player Electron",
+
+  "serverPort": 8765,
+
+  "kioskMode": true,
+  "autoLaunch": false,
+  "fullscreen": true,
+  "hideMouseCursor": true,
+  "preventSleep": true,
+  "width": 1920,
+  "height": 1080,
+
+  "relaxSslCerts": true,
+  "transport": "auto",
+  "googleGeoApiKey": "",
+
+  "controls": {
+    "keyboard": {
+      "debugOverlays": false,
+      "setupKey": false,
+      "playbackControl": false,
+      "videoControls": false
+    },
+    "mouse": {
+      "statusBarOnHover": false
+    }
+  }
+}
+
+
+
+
+

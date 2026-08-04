@@ -8,8 +8,8 @@ The sync scripts copy media from the local `media/` folder into the Xibo CMS lib
 
 Two script variants are available:
 
-- `scripts/sync_xibo_no_wifi.py`: use this when the machine is already on the network that can reach Xibo.
-- `scripts/sync_xibo.py`: use this when you want the script to connect to a Wi‑Fi hotspot on Windows before syncing.
+- `scripts/sync_xibo.py`: use this when the machine is already on the network that can reach Xibo.
+- `scripts/sync_xibo_wifi_connect.py`: use this when you want the script to connect to a Wi‑Fi hotspot on Windows before syncing.
 
 The main sync actions are:
 
@@ -65,11 +65,11 @@ If you need the script to connect to a hotspot first:
 py .\sync_xibo.py --yes
 ```
 
-Important notes for `sync_xibo.py`:
+Important notes for `sync_xibo.py_wifi_connect`:
 
 - Windows may require Location services to be enabled.
 - The terminal may need to be run as Administrator.
-- If either condition is not possible, use `sync_xibo_no_wifi.py` instead.
+- If either condition is not possible, use `sync_xibo.py` instead.
 
 ## Command-line options
 

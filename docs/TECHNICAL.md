@@ -6,8 +6,8 @@ This document is for maintainers and future adapters of the Xibo media sync scri
 
 The repository currently contains two sync entry points:
 
-- `scripts/sync_xibo_no_wifi.py`: syncs local media to Xibo CMS over an already-available network connection.
-- `scripts/sync_xibo.py`: same sync logic, but first attempts to connect to a configured Wi‑Fi hotspot on Windows via `netsh`.
+- `scripts/sync_xibo.py`: syncs local media to Xibo CMS over an already-available network connection.
+- `scripts/sync_xibo_wifi_connect.py`: same sync logic, but first attempts to connect to a configured Wi‑Fi hotspot on Windows via `netsh`.
 
 The scripts are intentionally single-file command-line tools with a Rich-based terminal UI.
 
@@ -15,8 +15,8 @@ The scripts are intentionally single-file command-line tools with a Rich-based t
 
 - `media/`: local media source directory used by the sync scripts.
 - `scripts/`: Python code and runtime configuration.
-  - `sync_xibo_no_wifi.py`: sync script without Wi‑Fi connect/disconnect.
-  - `sync_xibo.py`: sync script with Windows Wi‑Fi connect/disconnect.
+  - `sync_xibo.py`: sync script without Wi‑Fi connect/disconnect.
+  - `sync_xibo_wifi_connect.py`: sync script with Windows Wi‑Fi connect/disconnect.
   - `.env`: local configuration and credentials.
   - `requirements.txt`: Python dependencies.
   - `logs/`: optional log output target.
@@ -60,7 +60,7 @@ Both scripts load environment variables from `scripts/.env`.
 
 ## Sync Flow
 
-### `sync_xibo_no_wifi.py`
+### `sync_xibo.py`
 
 1. Load `.env` and show a settings summary.
 2. Optionally run the configuration wizard and persist changes back to `.env`.
@@ -72,7 +72,7 @@ Both scripts load environment variables from `scripts/.env`.
 8. Delete remote-only items if the user requested deletion.
 9. Optionally trigger Collect Now.
 
-### `sync_xibo.py`
+### `sync_xibo_wifi_connect.py`
 
 Same flow as above, plus:
 
