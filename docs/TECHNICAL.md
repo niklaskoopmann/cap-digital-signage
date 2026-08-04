@@ -123,6 +123,9 @@ When changing behavior:
 ## Docker / Xibo CMS Reference
 
 The repo includes a full Xibo Docker distribution under `xibo/xibo-docker-4.4.2/`.
+The actual compose file is `xibo/xibo-docker-4.4.2/docker-compose.yml`.
+
+The AI-agent orientation file lives at `AI_AGENTS.md`.
 
 Typical setup flow:
 

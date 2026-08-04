@@ -136,6 +136,30 @@ docker compose up -d
 
 Open the CMS in your browser, usually at `http://<host-ip>:8080`.
 
+## Xibo Player on Linux Ubuntu
+
+The `xibo/xibo-player/` folder contains notes for the open source player options. For a Linux Ubuntu target machine, the Electron player is the practical default.
+
+### Electron player
+
+Install or unpack the Xibo Electron player on the target machine, then run:
+
+```bash
+xiboplayer
+```
+
+The player keeps its config under:
+
+```text
+/home/digitalsignage/.config/xiboplayer/electron
+```
+
+Use the player README in `xibo/xibo-player/Readme.md` for the upstream links and extra notes.
+
+### Arexibo
+
+Arexibo is also listed in the player notes, but the current local documentation says it does not work well for offline or non-internet setups. Use Electron if the target machine needs to run without reliable internet access.
+
 ## First steps in Xibo
 
 After the CMS starts for the first time:
