@@ -10,6 +10,8 @@ One script is available:
 
 - `scripts/sync_xibo.py`: use this when the machine is already on the network that can reach Xibo.
 
+The script is now a launcher that calls the modular implementation in `scripts/xibo_sync/`, but the run command stays the same.
+
 The main sync actions are:
 
 1. Read configuration from `scripts/.env`.

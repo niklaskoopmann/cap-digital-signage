@@ -5,7 +5,7 @@ This repository centers on the Xibo media sync workflow.
 ## Primary entry point
 
 - `scripts/sync_xibo.py` is the main script to run.
-- The sync logic may later be split into smaller module files, but this script remains the entry point.
+- The sync logic now lives in `scripts/xibo_sync/`, but this script remains the entry point.
 
 ## Where to look first
 

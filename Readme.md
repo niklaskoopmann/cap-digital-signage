@@ -11,4 +11,4 @@ Start here:
 
 Scripts:
 
-- `scripts/sync_xibo.py`: sync only, no Wi‑Fi handling.
+- `scripts/sync_xibo.py`: launcher for the modular sync implementation; still the only script you run.

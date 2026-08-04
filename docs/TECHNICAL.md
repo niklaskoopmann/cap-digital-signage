@@ -6,15 +6,16 @@ This document is for maintainers and future adapters of the Xibo media sync scri
 
 The repository contains one sync entry point:
 
-- `scripts/sync_xibo.py`: syncs local media to Xibo CMS over an already-available network connection.
+- `scripts/sync_xibo.py`: thin launcher for the modular sync package.
 
-The scripts are intentionally single-file command-line tools with a Rich-based terminal UI.
+The implementation now lives under `scripts/xibo_sync/` so the configuration, UI, API client, media indexing, and config wizard can evolve independently.
 
 ## Repository Layout
 
 - `media/`: local media source directory used by the sync scripts.
 - `scripts/`: Python code and runtime configuration.
-  - `sync_xibo.py`: sync script.
+  - `sync_xibo.py`: launcher script.
+  - `xibo_sync/`: modular sync implementation.
   - `.env`: local configuration and credentials.
   - `requirements.txt`: Python dependencies.
   - `logs/`: optional log output target.
@@ -107,10 +108,10 @@ The scripts use the Xibo OAuth client credentials flow:
 
 Common extension points:
 
-- Add more CLI options with `argparse`.
-- Add additional metadata tagging after uploads.
-- Expand the delete guard logic.
-- Add support for another compare mode.
+- Add more CLI options with `argparse` in `scripts/xibo_sync/app.py`.
+- Add additional metadata tagging after uploads in `scripts/xibo_sync/client.py`.
+- Expand the delete guard logic in `scripts/xibo_sync/app.py`.
+- Add support for another compare mode in `scripts/xibo_sync/media.py`.
 ## Recommended Maintenance Practice
 
 When changing behavior:
