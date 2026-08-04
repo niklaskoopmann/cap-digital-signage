@@ -212,6 +212,34 @@ class XiboClient:
         logging.info("CMS Library fetched: %d item(s).", len(items))
         return items
 
+    def get_library_item(self, media_id: str) -> Optional[dict]:
+        """Fetch a single library item by media ID.
+
+        Args:
+            media_id: Identifier of the media item to fetch.
+
+        Returns:
+            The matching media dictionary when Xibo returns one, otherwise ``None``.
+
+        Raises:
+            RuntimeError: Raised when the query fails or returns an unexpected format.
+        """
+        r = self._request(
+            "GET",
+            self._api_url("/library"),
+            params={"mediaId": media_id},
+        )
+        if r.status_code != 200:
+            raise RuntimeError(f"Library item lookup failed for mediaId={media_id} ({r.status_code}): {r.text}")
+
+        data = self._extract_data(r.json())
+        if isinstance(data, list):
+            return data[0] if data else None
+        if isinstance(data, dict):
+            return data
+
+        raise RuntimeError(f"Unexpected library item lookup format for mediaId={media_id}: {r.text}")
+
     def tag_media(self, media_id: str, tag: str) -> None:
         """Attach a metadata tag to a media item in Xibo.
 
@@ -321,11 +349,28 @@ class XiboClient:
                             return None
 
                         media_id = str(created.get("mediaId") or created.get("id") or "")
-                        if media_id:
-                            for t in tags:
-                                self.tag_media(media_id, t)
 
-                        return created
+                        if not media_id:
+                            raise RuntimeError(
+                                f"Upload of '{file_path.name}' succeeded but Xibo did not return a mediaId, so the upload cannot be verified."
+                            )
+
+                        verified = self.get_library_item(media_id)
+                        if not verified:
+                            raise RuntimeError(
+                                f"Upload of '{file_path.name}' was accepted, but mediaId={media_id} is not present in the Xibo library."
+                            )
+
+                        valid_flag = verified.get("valid")
+                        if valid_flag not in (1, "1", True):
+                            raise RuntimeError(
+                                f"Upload of '{file_path.name}' returned mediaId={media_id}, but Xibo marked it invalid (valid={valid_flag!r}). The file may be unsupported or rejected."
+                            )
+
+                        for t in tags:
+                            self.tag_media(media_id, t)
+
+                        return verified
 
                     last_error = f"Upload attempt with field '{upload_field}' failed ({r.status_code}): {r.text}"
                     logging.warning(last_error)

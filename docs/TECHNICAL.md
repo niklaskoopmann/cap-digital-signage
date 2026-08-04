@@ -85,8 +85,9 @@ Uploads use `requests_toolbelt.MultipartEncoder` and a progress bar from Rich.
 Implementation notes:
 
 - Several multipart field names are tried to support Xibo version differences.
-- Upload success is accepted for HTTP `200` and `201`.
-- After upload, the script tags the item with `MANAGED_TAG` and, in hash mode, the hash tag as well.
+- Upload success is accepted for HTTP `200` and `201`, but the script then re-queries the library by `mediaId` and requires Xibo to return the item as `valid`.
+- If Xibo accepts the upload response but the library item is missing or marked invalid, the run fails so unsupported files are surfaced immediately.
+- After upload verification passes, the script tags the item with `MANAGED_TAG` and, in hash mode, the hash tag as well.
 
 ## Deletion Safety
 

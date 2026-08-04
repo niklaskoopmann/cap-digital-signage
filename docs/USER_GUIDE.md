@@ -72,7 +72,9 @@ Deletion behavior is controlled in two places:
 
 If deletion is enabled, the script only deletes remote items that are not present locally. When `ONLY_DELETE_MANAGED_TAG=true`, it further restricts deletes to items managed by this sync tool.
 
-New uploads are tagged during upload and are tagged again after the upload succeeds. This keeps future delete runs safe because managed media can be recognized even after a restart.
+After each upload, the script checks Xibo's library for the new media item. If Xibo accepts the request but does not show the file as a valid library item, the run stops with an error so unsupported files are not treated as synced.
+
+New uploads are tagged only after that verification passes, and they are tagged again after the upload succeeds. This keeps future delete runs safe because managed media can be recognized even after a restart.
 
 Example:
 
