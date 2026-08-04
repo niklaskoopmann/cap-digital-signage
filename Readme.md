@@ -10,4 +10,3 @@ Start here:
 Scripts:
 
 - `scripts/sync_xibo.py`: sync only, no Wi‑Fi handling.
-- `scripts/sync_xibo_wifi_connect.py`: sync plus Windows Wi‑Fi hotspot connection. Auto-Wifi connection is restricted.

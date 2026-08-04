@@ -4,10 +4,9 @@ This document is for maintainers and future adapters of the Xibo media sync scri
 
 ## Overview
 
-The repository currently contains two sync entry points:
+The repository contains one sync entry point:
 
 - `scripts/sync_xibo.py`: syncs local media to Xibo CMS over an already-available network connection.
-- `scripts/sync_xibo_wifi_connect.py`: same sync logic, but first attempts to connect to a configured Wi‑Fi hotspot on Windows via `netsh`.
 
 The scripts are intentionally single-file command-line tools with a Rich-based terminal UI.
 
@@ -15,8 +14,7 @@ The scripts are intentionally single-file command-line tools with a Rich-based t
 
 - `media/`: local media source directory used by the sync scripts.
 - `scripts/`: Python code and runtime configuration.
-  - `sync_xibo.py`: sync script without Wi‑Fi connect/disconnect.
-  - `sync_xibo_wifi_connect.py`: sync script with Windows Wi‑Fi connect/disconnect.
+  - `sync_xibo.py`: sync script.
   - `.env`: local configuration and credentials.
   - `requirements.txt`: Python dependencies.
   - `logs/`: optional log output target.
@@ -49,15 +47,6 @@ Both scripts load environment variables from `scripts/.env`.
 - `LOG_LEVEL`: Logging level.
 - `LOG_FILE`: Optional file log destination.
 
-### Wi‑Fi keys used by `sync_xibo.py`
-
-- `WIFI_SSID`: Target SSID.
-- `WIFI_PROFILE`: Windows WLAN profile name.
-- `WIFI_PASSWORD`: WPA/WPA2 password.
-- `WIFI_AUTH`: `WPA2PSK`, `WPAPSK`, or `open`.
-- `WIFI_CIPHER`: `AES` or `TKIP`.
-- `WIFI_CONNECT_TIMEOUT_SECONDS`: Wait time for the connection to become active.
-
 ## Sync Flow
 
 ### `sync_xibo.py`
@@ -71,16 +60,6 @@ Both scripts load environment variables from `scripts/.env`.
 7. Upload missing local items if enabled.
 8. Delete remote-only items if the user requested deletion.
 9. Optionally trigger Collect Now.
-
-### `sync_xibo_wifi_connect.py`
-
-Same flow as above, plus:
-
-1. Ensure a WLAN profile exists for the configured SSID.
-2. Connect using `netsh wlan connect`.
-3. Wait for the active SSID to match the configured SSID.
-4. Run the sync flow.
-5. Disconnect from Wi‑Fi at the end.
 
 ## Comparison Modes
 
@@ -124,16 +103,6 @@ The scripts use the Xibo OAuth client credentials flow:
 - Grant type: `client_credentials`
 - Token refresh is attempted when expiry is near or when a request is rejected with `401` or `403`.
 
-## Wi‑Fi Notes
-
-`sync_xibo.py` uses Windows `netsh` for WLAN management.
-
-Important constraints discovered during testing:
-
-- Windows Location services may need to be enabled.
-- Running the script may require Administrator privileges.
-- If these are not available, use `sync_xibo_no_wifi.py` instead.
-
 ## How to extend
 
 Common extension points:
@@ -142,8 +111,6 @@ Common extension points:
 - Add additional metadata tagging after uploads.
 - Expand the delete guard logic.
 - Add support for another compare mode.
-- Replace the `netsh` Wi‑Fi integration with a different provider if Windows policy allows it.
-
 ## Recommended Maintenance Practice
 
 When changing behavior:

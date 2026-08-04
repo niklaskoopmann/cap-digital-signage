@@ -1,15 +1,14 @@
 # User Guide
 
-This guide explains how to run the sync tool, how the scripts behave, and how to start Xibo with Docker.
+This guide explains how to run the sync tool, how it behaves, and how to start Xibo with Docker.
 
 ## What this tool does
 
 The sync scripts copy media from the local `media/` folder into the Xibo CMS library.
 
-Two script variants are available:
+One script is available:
 
 - `scripts/sync_xibo.py`: use this when the machine is already on the network that can reach Xibo.
-- `scripts/sync_xibo_wifi_connect.py`: use this when you want the script to connect to a Wi‑Fi hotspot on Windows before syncing.
 
 The main sync actions are:
 
@@ -46,30 +45,16 @@ py -m pip install -r requirements.txt
 Use dry-run mode if you want to see what would happen without uploading or deleting anything:
 
 ```powershell
-py .\sync_xibo_no_wifi.py --dry-run --yes
+py .\sync_xibo.py --dry-run --yes
 ```
 
-### Real sync without Wi‑Fi handling
+### Real sync
 
 If the machine is already on the correct network:
 
 ```powershell
-py .\sync_xibo_no_wifi.py --yes
-```
-
-### Real sync with Wi‑Fi connection on Windows
-
-If you need the script to connect to a hotspot first:
-
-```powershell
 py .\sync_xibo.py --yes
 ```
-
-Important notes for `sync_xibo.py_wifi_connect`:
-
-- Windows may require Location services to be enabled.
-- The terminal may need to be run as Administrator.
-- If either condition is not possible, use `sync_xibo.py` instead.
 
 ## Command-line options
 
@@ -90,7 +75,7 @@ New uploads are tagged during upload and are tagged again after the upload succe
 Example:
 
 ```powershell
-py .\sync_xibo_no_wifi.py --dry-run --yes
+py .\sync_xibo.py --dry-run --yes
 ```
 
 ## What the settings mean
@@ -169,4 +154,3 @@ After the CMS starts for the first time:
 
 - If you see `401 Unauthorized`, verify `AUTH_MODE=oauth` and the client credentials.
 - If deletion does not happen, check `DELETE_REMOTE_NOT_LOCAL` and `ONLY_DELETE_MANAGED_TAG`.
-- If Wi‑Fi connection fails, use `sync_xibo_no_wifi.py` or see the technical docs for Windows-specific constraints.
