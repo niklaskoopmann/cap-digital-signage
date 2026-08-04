@@ -10,4 +10,4 @@ __pycache__/
 *.jpg
 *.mp4
 *.mov
-scripts/**/*.pyc
+**/__pycache__/
