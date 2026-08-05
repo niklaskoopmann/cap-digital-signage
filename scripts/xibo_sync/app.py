@@ -43,7 +43,8 @@ def main() -> int:
     """Run the sync CLI, including config prompts, diffing, and actions.
 
     Returns:
-        Process exit code. ``0`` indicates success and ``2`` indicates failure.
+        Process exit code. ``0`` indicates success and ``2`
+        ` indicates failure.
     """
     scripts_dir = Path(__file__).resolve().parent.parent
     env_path = scripts_dir / ".env"

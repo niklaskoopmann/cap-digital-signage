@@ -240,20 +240,24 @@ class XiboClient:
 
         raise RuntimeError(f"Unexpected library item lookup format for mediaId={media_id}: {r.text}")
 
-    def tag_media(self, media_id: str, tag: str) -> None:
-        """Attach a metadata tag to a media item in Xibo.
+    def tag_media(self, media_id: str, tags: List[str]) -> None:
+        """Attach one or more metadata tags to a media item in Xibo.
 
         Args:
             media_id: Identifier of the media item to update.
-            tag: Tag value to attach to the media item.
+            tags: Tag values to attach to the media item.
 
         Raises:
             RuntimeError: Raised when the tag request fails.
         """
+        clean_tags = [t.strip() for t in tags if isinstance(t, str) and t.strip()]
+        if not clean_tags:
+            return
+
         r = self._request(
             "POST",
             self._api_url(f"/library/{media_id}/tag"),
-            data={"tag": tag},
+            data=[("tag[]", tag) for tag in dict.fromkeys(clean_tags)],
         )
         if r.status_code != 200:
             raise RuntimeError(f"Tagging mediaId={media_id} failed ({r.status_code}): {r.text}")
@@ -348,7 +352,7 @@ class XiboClient:
                             logging.warning("Upload succeeded but response has no media object: %s", payload)
                             return None
 
-                        media_id = str(created.get("mediaId") or created.get("id") or "")
+                        media_id = str(created.get("files")[0].get("mediaId") if created.get("files") else created.get("mediaId") or created.get("id") or "")
 
                         if not media_id:
                             raise RuntimeError(
@@ -367,8 +371,7 @@ class XiboClient:
                                 f"Upload of '{file_path.name}' returned mediaId={media_id}, but Xibo marked it invalid (valid={valid_flag!r}). The file may be unsupported or rejected."
                             )
 
-                        for t in tags:
-                            self.tag_media(media_id, t)
+                        self.tag_media(media_id, tags)
 
                         return verified
 
