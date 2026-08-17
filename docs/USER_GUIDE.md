@@ -22,7 +22,17 @@ The main sync actions are:
 6. Compare local and remote media.
 7. Upload missing files.
 8. Optionally delete remote-only files.
-9. Optionally ask Xibo players to refresh content.
+9. Optionally create/publish/assign layouts for uploaded media and ask players to show them.
+	 - If `CREATE_LAYOUT_PER_UPLOAD=true`, the script will create a full-screen layout for each newly
+		 uploaded media item by creating a stored layout in Xibo and applying the uploaded media as the
+		 layout background after checking the layout out for editing. This is a convenience workflow for
+		 immediately displaying single images on players.
+	 - If `ASSIGN_LAYOUT_ON_CHANGE=true` and `DISPLAY_GROUP_ID` is set, the created layout is assigned
+		 to the group so it enters the group's schedule.
+	 - If `PUBLISH_ON_CHANGE=true`, the layout is published after creation so players see a published
+		 version to play.
+	 - If `IMMEDIATE_SHOW_ON_CHANGE=true`, the script sends a change-layout action to the display
+		 group which is delivered to online players and will make them show the layout immediately.
 
 ## Before you start
 
@@ -180,5 +190,4 @@ After the CMS starts for the first time:
 
 ## Troubleshooting
 
-- If you see `401 Unauthorized`, verify `AUTH_MODE=oauth` and the client credentials.
 - If deletion does not happen, check `DELETE_REMOTE_NOT_LOCAL` and `ONLY_DELETE_MANAGED_TAG`.

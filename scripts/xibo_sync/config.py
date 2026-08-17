@@ -34,6 +34,12 @@ class Config:
     display_group_id: Optional[str]
     trigger_collectnow_on_changes: bool
 
+    # Layout/display workflow
+    create_layout_per_upload: bool
+    assign_layout_on_change: bool
+    publish_on_change: bool
+    immediate_show_on_change: bool
+
     xibo_upload_field: str
     hash_tag_prefix: str
 
@@ -126,6 +132,12 @@ def load_config() -> Config:
 
         display_group_id=os.getenv("DISPLAY_GROUP_ID", "").strip() or None,
         trigger_collectnow_on_changes=getenv_bool("TRIGGER_COLLECTNOW_ON_CHANGES", True),
+
+        # Layout/display workflow flags
+        create_layout_per_upload=getenv_bool("CREATE_LAYOUT_PER_UPLOAD", False),
+        assign_layout_on_change=getenv_bool("ASSIGN_LAYOUT_ON_CHANGE", False),
+        publish_on_change=getenv_bool("PUBLISH_ON_CHANGE", True),
+        immediate_show_on_change=getenv_bool("IMMEDIATE_SHOW_ON_CHANGE", False),
 
         xibo_upload_field=os.getenv("XIBO_UPLOAD_FIELD", "files").strip(),
         hash_tag_prefix=os.getenv("HASH_TAG_PREFIX", "sha256:").strip(),

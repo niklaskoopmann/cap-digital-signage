@@ -43,6 +43,35 @@ Both scripts load environment variables from `scripts/.env`.
 - `DRY_RUN`: If `true`, suppresses changes.
 - `DISPLAY_GROUP_ID`: Optional display group to trigger Collect Now.
 - `TRIGGER_COLLECTNOW_ON_CHANGES`: Whether to trigger Collect Now after modifications.
+- `TRIGGER_COLLECTNOW_ON_CHANGES`: Whether to trigger Collect Now after modifications.
+
+### Layout / Display workflow (optional)
+
+The sync tool can optionally create a simple full-screen layout for newly uploaded media, publish
+that layout, assign it to a display group, and instruct players to show it immediately. These
+behaviors are controlled via environment variables (disabled by default unless you enable them):
+
+- `CREATE_LAYOUT_PER_UPLOAD`: When `true`, a full-screen layout is created for each uploaded media
+  item using POST `/layout`, then the uploaded media is attached as the layout background before
+  returned layout metadata is used for follow-up steps.
+- `ASSIGN_LAYOUT_ON_CHANGE`: When `true`, created layouts are assigned to `DISPLAY_GROUP_ID` using
+  `/displaygroup/{id}/layout/assign` so they become part of the group's schedule.
+- `PUBLISH_ON_CHANGE`: When `true`, the script will call `/layout/publish/{id}` to publish the layout
+  so players can play the new version immediately.
+- `IMMEDIATE_SHOW_ON_CHANGE`: When `true`, the script attempts to send a change-layout action
+  (`/displaygroup/{id}/action/changeLayout`) which instructs online players in the group to switch
+  to the provided layout immediately. This will interrupt the current schedule while the action is
+  in effect and requires players to be online and the API credentials to have sufficient privileges.
+
+Notes:
+- The implementation creates a real layout record with POST `/layout`, checks it out with PUT
+  `/layout/checkout/{layoutId}`, then applies the uploaded media as the layout background so the
+  layout is writable before publish, assign, or change-layout actions run. If you need templated
+  layouts or multi-region designs, extend the client helpers to create or modify layouts with
+  templates and regions.
+- `collect_now` (already implemented) remains useful: it triggers players to pull new library files.
+  `IMMEDIATE_SHOW_ON_CHANGE` is delivered via XMR change-layout actions and may be used in
+  combination with `collect_now` to speed up delivery to offline caches.
 - `XIBO_UPLOAD_FIELD`: Multipart field name used by the upload API.
 - `HASH_TAG_PREFIX`: Prefix used for sha256 tags, default `sha256:`.
 - `LOG_LEVEL`: Logging level.

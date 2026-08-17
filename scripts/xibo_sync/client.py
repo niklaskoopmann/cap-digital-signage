@@ -92,7 +92,7 @@ class XiboClient:
             "client_secret": client_secret,
         }
         r = self.session.post(self._token_url(), data=payload, timeout=self.timeout, verify=self.verify_tls)
-        if r.status_code != 200:
+        if not r.ok:
             body_text = r.text
             try:
                 body_json = r.json()
@@ -168,7 +168,7 @@ class XiboClient:
             raise RuntimeError(
                 f"API unauthorized ({r.status_code}). Set AUTH_MODE=oauth and provide CMS_CLIENT_ID/CMS_CLIENT_SECRET."
             )
-        if r.status_code != 200:
+        if not r.ok:
             raise RuntimeError(f"API check failed ({r.status_code}): {r.text}")
 
     def list_library(self, managed_tag: Optional[str], folder_id: Optional[str]) -> List[dict]:
@@ -196,7 +196,7 @@ class XiboClient:
                 params["folderId"] = folder_id
 
             r = self._request("GET", self._api_url("/library"), params=params)
-            if r.status_code != 200:
+            if not r.ok:
                 raise RuntimeError(f"Library list failed ({r.status_code}): {r.text}")
 
             data = self._extract_data(r.json())
@@ -229,7 +229,7 @@ class XiboClient:
             self._api_url("/library"),
             params={"mediaId": media_id},
         )
-        if r.status_code != 200:
+        if not r.ok:
             raise RuntimeError(f"Library item lookup failed for mediaId={media_id} ({r.status_code}): {r.text}")
 
         data = self._extract_data(r.json())
@@ -259,8 +259,36 @@ class XiboClient:
             self._api_url(f"/library/{media_id}/tag"),
             data=[("tag[]", tag) for tag in dict.fromkeys(clean_tags)],
         )
-        if r.status_code != 200:
+        if not r.ok:
             raise RuntimeError(f"Tagging mediaId={media_id} failed ({r.status_code}): {r.text}")
+
+    def tag_layout(self, layout_id: str, tags: List[str], dry_run: bool = False) -> None:
+        """Attach one or more metadata tags to a layout in Xibo.
+
+        Args:
+            layout_id: Identifier of the layout to update.
+            tags: Tag values to attach to the layout.
+            dry_run: If True, log the action but do not execute the request.
+
+        Raises:
+            RuntimeError: Raised when the tag request fails.
+        """
+        clean_tags = [t.strip() for t in tags if isinstance(t, str) and t.strip()]
+        if not clean_tags:
+            return
+
+        logging.info("Tagging layoutId=%s with %s ...", layout_id, clean_tags)
+        if dry_run:
+            logging.info("[DRY_RUN] Would tag layoutId=%s with %s", layout_id, clean_tags)
+            return
+
+        r = self._request(
+            "POST",
+            self._api_url(f"/layout/{layout_id}/tag"),
+            data=[("tag[]", tag) for tag in dict.fromkeys(clean_tags)],
+        )
+        if not r.ok:
+            raise RuntimeError(f"Tagging layoutId={layout_id} failed ({r.status_code}): {r.text}")
 
     def upload_media(
         self,
@@ -407,7 +435,7 @@ class XiboClient:
             data={"forceDelete": 1},
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
-        if r.status_code not in (200, 204):
+        if not r.ok:
             raise RuntimeError(f"Delete mediaId={media_id} failed ({r.status_code}): {r.text}")
 
     def collect_now(self, display_group_id: str, dry_run: bool) -> None:
@@ -429,5 +457,293 @@ class XiboClient:
             "POST",
             self._api_url(f"/displaygroup/{display_group_id}/action/collectNow"),
         )
-        if r.status_code != 200:
+        if not r.ok:
             raise RuntimeError(f"collectNow failed ({r.status_code}): {r.text}")
+
+    def list_resolutions(self, enabled: Optional[int] = 1) -> List[dict]:
+        """Fetch layout resolutions available to the current user.
+
+        Args:
+            enabled: Optional enabled flag filter passed through to the CMS.
+
+        Returns:
+            A list of resolution dictionaries returned by Xibo.
+        """
+        params = {"sortBy": "width", "sortDir": "desc"}
+        if enabled is not None:
+            params["enabled"] = enabled
+
+        r = self._request("GET", self._api_url("/resolution"), params=params)
+        if not r.ok:
+            raise RuntimeError(f"Resolution list failed ({r.status_code}): {r.text}")
+
+        data = self._extract_data(r.json())
+        if not isinstance(data, list):
+            raise RuntimeError(f"Unexpected resolution response format: {r.text}")
+        return data
+
+    @staticmethod
+    def _coerce_int(value) -> Optional[int]:
+        """Best-effort conversion to int for API payload helpers."""
+        if value in (None, ""):
+            return None
+        try:
+            return int(value)
+        except Exception:
+            return None
+
+    def _select_resolution_id(
+        self,
+        resolution_id: Optional[int],
+        media_width: Optional[int],
+        media_height: Optional[int],
+    ) -> Optional[int]:
+        """Choose a CMS resolution for a fullscreen layout.
+
+        If a caller provides ``resolution_id``, that value wins. Otherwise the
+        best enabled resolution is chosen using the media aspect ratio when it is
+        available, falling back to the first enabled resolution returned by the CMS.
+        """
+        if resolution_id is not None:
+            return resolution_id
+
+        resolutions = self.list_resolutions(enabled=1)
+        if not resolutions:
+            return None
+
+        if media_width and media_height:
+            media_ratio = media_width / media_height
+            media_area = media_width * media_height
+
+            def _score(resolution: dict):
+                width = self._coerce_int(resolution.get("width") or resolution.get("designerWidth"))
+                height = self._coerce_int(resolution.get("height") or resolution.get("designerHeight"))
+                if not width or not height:
+                    return (float("inf"), float("inf"))
+                ratio_delta = abs((width / height) - media_ratio)
+                area_delta = abs((width * height) - media_area) / max(media_area, 1)
+                return (ratio_delta, area_delta)
+
+            best = min(resolutions, key=_score)
+        else:
+            best = resolutions[0]
+
+        return self._coerce_int(best.get("resolutionId"))
+
+    def create_fullscreen_layout(
+        self,
+        media: dict | str,
+        media_type: str = "media",
+        resolution_id: Optional[int] = None,
+        background_color: Optional[str] = None,
+        layout_duration: Optional[int] = None,
+        dry_run: bool = False,
+    ) -> Optional[dict]:
+        """Create a stored full-screen layout for the provided media.
+
+        The CMS fullscreen convenience endpoint does not persist layouts reliably,
+        so this helper creates the layout with POST /layout and then sets the media
+        as the background image.
+        """
+        if isinstance(media, dict):
+            media_id = str(media.get("mediaId") or media.get("id") or "")
+            media_name = str(
+                media.get("name")
+                or media.get("fileName")
+                or media.get("originalFileName")
+                or media_id
+            )
+            media_width = self._coerce_int(media.get("width") or media.get("imageWidth"))
+            media_height = self._coerce_int(media.get("height") or media.get("imageHeight"))
+        else:
+            media_id = str(media)
+            media_name = media_id
+            media_width = None
+            media_height = None
+
+        logging.info("Creating full-screen layout for mediaId=%s ...", media_id)
+        if dry_run:
+            logging.info("[DRY_RUN] Would create full-screen layout for mediaId=%s", media_id)
+            return None
+
+        chosen_resolution_id = self._select_resolution_id(
+            resolution_id=resolution_id,
+            media_width=media_width,
+            media_height=media_height,
+        )
+        if chosen_resolution_id is None:
+            raise RuntimeError(
+                "Unable to determine a layout resolution. Provide resolutionId or configure at least one enabled resolution in Xibo."
+            )
+
+        create_payload = {
+            "name": f"{media_name} fullscreen",
+            "resolutionId": chosen_resolution_id,
+        }
+
+        r = self._request("POST", self._api_url("/layout"), data=create_payload)
+        if not r.ok:
+            raise RuntimeError(f"Create fullscreen layout failed ({r.status_code}): {r.text}")
+
+        payload = self._extract_data(r.json())
+
+        if isinstance(payload, list):
+            payload = payload[0] if payload else None
+
+        if not isinstance(payload, dict):
+            raise RuntimeError(f"Create fullscreen layout returned unexpected payload: {r.text}")
+
+        layout_id = self._coerce_int(payload.get("layoutId") or payload.get("id"))
+        if not layout_id:
+            raise RuntimeError(f"Create fullscreen layout response missing layoutId: {r.text}")
+
+        r = self._request("PUT", self._api_url(f"/layout/checkout/{layout_id}"))
+        if not r.ok:
+            # If the layout is already checked out, discard the stale checkout and try again.
+            if r.status_code == 422:
+                try:
+                    error_data = r.json()
+                    error_msg = error_data.get("message", "").lower()
+                    if "already checked out" in error_msg:
+                        logging.info("Layout already checked out; discarding stale checkout and retrying...")
+                        discard_r = self._request("PUT", self._api_url(f"/layout/discard/{layout_id}"))
+                        if not discard_r.ok:
+                            logging.warning(f"Discard stale checkout failed ({discard_r.status_code}), retrying checkout anyway...")
+                        # Retry checkout
+                        r = self._request("PUT", self._api_url(f"/layout/checkout/{layout_id}"))
+                        if not r.ok:
+                            raise RuntimeError(f"Checkout fullscreen layout failed after discard ({r.status_code}): {r.text}")
+                    else:
+                        raise RuntimeError(f"Checkout fullscreen layout failed ({r.status_code}): {r.text}")
+                except (ValueError, KeyError):
+                    raise RuntimeError(f"Checkout fullscreen layout failed ({r.status_code}): {r.text}")
+            else:
+                raise RuntimeError(f"Checkout fullscreen layout failed ({r.status_code}): {r.text}")
+        
+        checkout_data = self._extract_data(r.json())
+        if isinstance(checkout_data, list):
+            checkout_data = checkout_data[0] if checkout_data else None
+        if isinstance(checkout_data, dict):
+            payload = checkout_data
+            layout_id = self._coerce_int(payload.get("layoutId") or payload.get("id")) or layout_id
+
+        background_payload = {
+            "backgroundColor": background_color or "#000",
+            "backgroundzIndex": 1,
+            "backgroundImageId": int(media_id),
+            "resolutionId": chosen_resolution_id,
+        }
+
+        r = self._request(
+            "PUT",
+            self._api_url(f"/layout/background/{layout_id}"),
+            data=background_payload,
+        )
+        if not r.ok:
+            raise RuntimeError(f"Set fullscreen layout background failed ({r.status_code}): {r.text}")
+
+        data = self._extract_data(r.json())
+
+        # Release the checkout so the layout is not locked for other users.
+        # This is a best-effort operation; we log warnings but don't fail the layout creation.
+        try:
+            discard_r = self._request("PUT", self._api_url(f"/layout/discard/{layout_id}"))
+            if not discard_r.ok:
+                logging.warning(
+                    "Failed to release layout checkout for layoutId=%s (%s), layout may remain locked: %s",
+                    layout_id,
+                    discard_r.status_code,
+                    discard_r.text,
+                )
+        except Exception as e:
+            logging.warning("Exception while releasing layout checkout for layoutId=%s: %s", layout_id, e)
+
+        # Normalize to a single dict representing the created layout when possible.
+        if isinstance(data, list) and data:
+            return data[0]
+        if isinstance(data, dict):
+            return data
+        return payload
+
+    def get_layout_by_name(self, name: str) -> Optional[dict]:
+        """Search for a layout by (partial) name and return the first match.
+
+        Uses GET /layout?layout=<name> which supports partial matching.
+        """
+        if not name:
+            return None
+
+        r = self._request("GET", self._api_url("/layout"), params={"layout": name, "length": 1})
+        if not r.ok:
+            raise RuntimeError(f"Layout search failed ({r.status_code}): {r.text}")
+
+        data = self._extract_data(r.json())
+        if isinstance(data, list) and data:
+            return data[0]
+        if isinstance(data, dict):
+            return data
+        return None
+
+    def publish_layout(self, layout_id: str, publish_now: bool = True, dry_run: bool = False) -> None:
+        """Publish a layout so that players can play the new version.
+
+        Calls PUT /layout/publish/{layoutId} with optional publishNow flag.
+        """
+        logging.info("Publishing layoutId=%s ...", layout_id)
+        if dry_run:
+            logging.info("[DRY_RUN] Would publish layoutId=%s", layout_id)
+            return
+
+        data = {"publishNow": 1 if publish_now else 0}
+        r = self._request("PUT", self._api_url(f"/layout/publish/{layout_id}"), data=data)
+        if not r.ok:
+            raise RuntimeError(f"Publish layoutId={layout_id} failed ({r.status_code}): {r.text}")
+
+    def assign_layouts_to_displaygroup(self, display_group_id: str, layout_ids: List[str], dry_run: bool = False) -> None:
+        """Assign one or more layouts to a display group.
+
+        Uses POST /displaygroup/{displayGroupId}/layout/assign with repeated form fields.
+        """
+        logging.info("Assigning layouts %s to displayGroupId=%s ...", layout_ids, display_group_id)
+        if dry_run:
+            logging.info("[DRY_RUN] Would assign layouts %s to displayGroupId=%s", layout_ids, display_group_id)
+            return
+
+        # Form-encode repeated layoutId[] values
+        data = [("layoutId[]", str(lid)) for lid in layout_ids]
+        r = self._request("POST", self._api_url(f"/displaygroup/{display_group_id}/layout/assign"), data=data)
+        if not r.ok:
+            raise RuntimeError(f"Assign layouts to displayGroupId={display_group_id} failed ({r.status_code}): {r.text}")
+
+    def change_layout_on_displaygroup(
+        self,
+        display_group_id: str,
+        layout_id: str,
+        duration: Optional[int] = None,
+        download_required: int = 1,
+        change_mode: str = "replace",
+        dry_run: bool = False,
+    ) -> None:
+        """Send a Change Layout action to a display group to make players show a layout immediately.
+
+        Uses POST /displaygroup/{displayGroupId}/action/changeLayout which is delivered via XMR
+        to online players.
+        """
+        logging.info("Sending changeLayout for layoutId=%s to displayGroupId=%s ...", layout_id, display_group_id)
+        if dry_run:
+            logging.info(
+                "[DRY_RUN] Would send changeLayout(layoutId=%s,duration=%s,changeMode=%s) to displayGroupId=%s",
+                layout_id,
+                duration,
+                change_mode,
+                display_group_id,
+            )
+            return
+
+        data = {"layoutId": layout_id, "changeMode": change_mode, "downloadRequired": download_required}
+        if duration is not None:
+            data["duration"] = duration
+
+        r = self._request("POST", self._api_url(f"/displaygroup/{display_group_id}/action/changeLayout"), data=data)
+        if not r.ok:
+            raise RuntimeError(f"Change layout action failed ({r.status_code}): {r.text}")

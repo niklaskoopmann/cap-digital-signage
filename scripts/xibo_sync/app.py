@@ -146,7 +146,7 @@ def main() -> int:
                 if cfg.compare_mode == "hash":
                     tags.append(key)
 
-                xibo.upload_media(
+                created = xibo.upload_media(
                     file_path=f,
                     name=f.name,
                     folder_id=cfg.managed_folder_id,
@@ -155,6 +155,59 @@ def main() -> int:
                     dry_run=cfg.dry_run,
                 )
                 changes_made = True
+
+                # Optionally create a simple full-screen layout per uploaded media,
+                # publish it, assign to display group, and optionally force show.
+                if cfg.create_layout_per_upload and created:
+                    # best-effort extraction of the media id from the returned library object
+                    media_id = None
+                    if isinstance(created, dict):
+                        media_id = str(created.get("mediaId") or created.get("id") or "")
+                        if not media_id and created.get("files"):
+                            try:
+                                media_id = str(created.get("files")[0].get("mediaId"))
+                            except Exception:
+                                media_id = None
+
+                    if media_id:
+                        layout = xibo.create_fullscreen_layout(created, dry_run=cfg.dry_run)
+                        layout_id = None
+                        if isinstance(layout, dict):
+                            layout_id = str(layout.get("layoutId") or layout.get("id") or "")
+
+                        if layout_id:
+                            # Tag the layout with MANAGED_TAG so it can be found by dynamic playlists
+                            try:
+                                xibo.tag_layout(layout_id, [cfg.managed_tag], dry_run=cfg.dry_run)
+                            except Exception as e:
+                                logging.warning("Failed to tag layoutId=%s with MANAGED_TAG: %s", layout_id, e)
+
+                            if cfg.publish_on_change:
+                                try:
+                                    xibo.publish_layout(layout_id, dry_run=cfg.dry_run)
+                                except Exception as e:
+                                    logging.warning("Publish failed for layoutId=%s: %s", layout_id, e)
+                                    # Attempt a fallback: search for the layout by name and retry publish
+                                    if isinstance(layout, dict):
+                                        layout_name = layout.get("layout") or layout.get("name") or None
+                                        if layout_name:
+                                            try:
+                                                found = xibo.get_layout_by_name(layout_name)
+                                                if isinstance(found, dict):
+                                                    found_id = str(found.get("layoutId") or found.get("id") or "")
+                                                    if found_id and found_id != layout_id:
+                                                        logging.info("Retrying publish with layoutId=%s (found by name '%s')", found_id, layout_name)
+                                                        xibo.publish_layout(found_id, dry_run=cfg.dry_run)
+                                            except Exception as e2:
+                                                logging.warning("Fallback publish attempt failed: %s", e2)
+
+                            if cfg.assign_layout_on_change and cfg.display_group_id:
+                                xibo.assign_layouts_to_displaygroup(cfg.display_group_id, [layout_id], dry_run=cfg.dry_run)
+
+                            if cfg.immediate_show_on_change and cfg.display_group_id:
+                                # duration None -> use default; downloadRequired=1 ensures players will collect if configured
+                                xibo.change_layout_on_displaygroup(cfg.display_group_id, layout_id, download_required=1, dry_run=cfg.dry_run)
+
             ui_ok("Uploads complete")
         else:
             ui_info("Step 5: Upload skipped (nothing to upload or UPLOAD_NEW_LOCAL=false)")

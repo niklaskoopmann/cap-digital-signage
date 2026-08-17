@@ -5,12 +5,20 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python Debugger: Current File with Arguments",
+            "name": "sync_xibo.py with Arguments",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/scripts/sync_xibo.py",
             "console": "integratedTerminal",
             "args": "${command:pickArgs}"
+        },
+                {
+            "name": "sync_xibo.py --delete -y",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/sync_xibo.py",
+            "console": "integratedTerminal",
+            "args": "--delete -y"
         }
     ]
 }
