@@ -65,10 +65,16 @@ behaviors are controlled via environment variables (disabled by default unless y
 
 Notes:
 - The implementation creates a real layout record with POST `/layout`, checks it out with PUT
-  `/layout/checkout/{layoutId}`, then applies the uploaded media as the layout background so the
-  layout is writable before publish, assign, or change-layout actions run. If you need templated
-  layouts or multi-region designs, extend the client helpers to create or modify layouts with
-  templates and regions.
+  `/layout/checkout/{layoutId}`, then applies the uploaded media as the layout background with PUT
+  `/layout/background/{layoutId}`. If checkout returns 422 "already checked out" (e.g. a stale lock
+  left over from an earlier failed run), it discards that stale checkout with PUT
+  `/layout/discard/{layoutId}` and retries checkout before setting the background. Once background
+  is set, the draft is intentionally left as-is - discarding at that point abandons the edit and
+  previously left the layout in a broken, still-locked state that blocked deleting it from the CMS
+  GUI. `publish_layout()` is what finalizes (and releases) the draft afterward. Publish happens
+  before tagging, since Xibo rejects tag changes on Draft layouts. If you need templated layouts or
+  multi-region designs, extend the client helpers to create or modify layouts with templates and
+  regions.
 - `collect_now` (already implemented) remains useful: it triggers players to pull new library files.
   `IMMEDIATE_SHOW_ON_CHANGE` is delivered via XMR change-layout actions and may be used in
   combination with `collect_now` to speed up delivery to offline caches.

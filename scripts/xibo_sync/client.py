@@ -597,35 +597,13 @@ class XiboClient:
         if not layout_id:
             raise RuntimeError(f"Create fullscreen layout response missing layoutId: {r.text}")
 
-        r = self._request("PUT", self._api_url(f"/layout/checkout/{layout_id}"))
-        if not r.ok:
-            # If the layout is already checked out, discard the stale checkout and try again.
-            if r.status_code == 422:
-                try:
-                    error_data = r.json()
-                    error_msg = error_data.get("message", "").lower()
-                    if "already checked out" in error_msg:
-                        logging.info("Layout already checked out; discarding stale checkout and retrying...")
-                        discard_r = self._request("PUT", self._api_url(f"/layout/discard/{layout_id}"))
-                        if not discard_r.ok:
-                            logging.warning(f"Discard stale checkout failed ({discard_r.status_code}), retrying checkout anyway...")
-                        # Retry checkout
-                        r = self._request("PUT", self._api_url(f"/layout/checkout/{layout_id}"))
-                        if not r.ok:
-                            raise RuntimeError(f"Checkout fullscreen layout failed after discard ({r.status_code}): {r.text}")
-                    else:
-                        raise RuntimeError(f"Checkout fullscreen layout failed ({r.status_code}): {r.text}")
-                except (ValueError, KeyError):
-                    raise RuntimeError(f"Checkout fullscreen layout failed ({r.status_code}): {r.text}")
-            else:
-                raise RuntimeError(f"Checkout fullscreen layout failed ({r.status_code}): {r.text}")
-        
-        checkout_data = self._extract_data(r.json())
-        if isinstance(checkout_data, list):
-            checkout_data = checkout_data[0] if checkout_data else None
-        if isinstance(checkout_data, dict):
-            payload = checkout_data
-            layout_id = self._coerce_int(payload.get("layoutId") or payload.get("id")) or layout_id
+        logging.info(
+            "Created layoutId=%s (publishedStatus=%s, parentId=%s, isLocked=%s)",
+            layout_id,
+            payload.get("publishedStatus"),
+            payload.get("parentId"),
+            payload.get("isLocked"),
+        )
 
         background_payload = {
             "backgroundColor": background_color or "#000",
@@ -634,29 +612,58 @@ class XiboClient:
             "resolutionId": chosen_resolution_id,
         }
 
-        r = self._request(
-            "PUT",
-            self._api_url(f"/layout/background/{layout_id}"),
-            data=background_payload,
-        )
+        def _set_background(target_layout_id: int):
+            return self._request(
+                "PUT",
+                self._api_url(f"/layout/background/{target_layout_id}"),
+                data=background_payload,
+            )
+
+        r = _set_background(layout_id)
+
+        if not r.ok and r.status_code == 422 and "checkout" in r.text.lower():
+            # A freshly created layout is not always immediately editable - Xibo
+            # requires an explicit checkout before the background can be set. Only
+            # attempt checkout here (rather than unconditionally, which can needlessly
+            # collide with a layout that's already editable) since we now know it's
+            # required.
+            checkout_r = self._request("PUT", self._api_url(f"/layout/checkout/{layout_id}"))
+            if not checkout_r.ok:
+                already_checked_out = False
+                if checkout_r.status_code == 422:
+                    try:
+                        already_checked_out = "already checked out" in checkout_r.json().get("message", "").lower()
+                    except (ValueError, AttributeError):
+                        already_checked_out = False
+                if not already_checked_out:
+                    raise RuntimeError(f"Checkout fullscreen layout failed ({checkout_r.status_code}): {checkout_r.text}")
+
+                logging.info("Layout already checked out; discarding stale checkout and retrying...")
+                discard_r = self._request("PUT", self._api_url(f"/layout/discard/{layout_id}"))
+                if not discard_r.ok:
+                    logging.warning(
+                        "Discard stale checkout failed (%s), retrying checkout anyway...",
+                        discard_r.status_code,
+                    )
+                checkout_r = self._request("PUT", self._api_url(f"/layout/checkout/{layout_id}"))
+                if not checkout_r.ok:
+                    raise RuntimeError(f"Checkout fullscreen layout failed after discard ({checkout_r.status_code}): {checkout_r.text}")
+
+            # Checkout can create a new draft row with its own layoutId (the original
+            # becomes the published parent) - use the checked-out id for the retry.
+            checkout_data = self._extract_data(checkout_r.json())
+            if isinstance(checkout_data, list):
+                checkout_data = checkout_data[0] if checkout_data else None
+            if isinstance(checkout_data, dict):
+                payload = checkout_data
+                layout_id = self._coerce_int(payload.get("layoutId") or payload.get("id")) or layout_id
+
+            r = _set_background(layout_id)
+
         if not r.ok:
             raise RuntimeError(f"Set fullscreen layout background failed ({r.status_code}): {r.text}")
 
         data = self._extract_data(r.json())
-
-        # Release the checkout so the layout is not locked for other users.
-        # This is a best-effort operation; we log warnings but don't fail the layout creation.
-        try:
-            discard_r = self._request("PUT", self._api_url(f"/layout/discard/{layout_id}"))
-            if not discard_r.ok:
-                logging.warning(
-                    "Failed to release layout checkout for layoutId=%s (%s), layout may remain locked: %s",
-                    layout_id,
-                    discard_r.status_code,
-                    discard_r.text,
-                )
-        except Exception as e:
-            logging.warning("Exception while releasing layout checkout for layoutId=%s: %s", layout_id, e)
 
         # Normalize to a single dict representing the created layout when possible.
         if isinstance(data, list) and data:

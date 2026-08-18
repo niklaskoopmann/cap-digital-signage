@@ -176,30 +176,46 @@ def main() -> int:
                             layout_id = str(layout.get("layoutId") or layout.get("id") or "")
 
                         if layout_id:
-                            # Tag the layout with MANAGED_TAG so it can be found by dynamic playlists
-                            try:
-                                xibo.tag_layout(layout_id, [cfg.managed_tag], dry_run=cfg.dry_run)
-                            except Exception as e:
-                                logging.warning("Failed to tag layoutId=%s with MANAGED_TAG: %s", layout_id, e)
+                            layout_name = layout.get("layout") or layout.get("name") if isinstance(layout, dict) else None
 
+                            # Publish before tagging: Xibo rejects tag changes on Draft layouts,
+                            # and a freshly created layout is a Draft until published.
                             if cfg.publish_on_change:
                                 try:
                                     xibo.publish_layout(layout_id, dry_run=cfg.dry_run)
                                 except Exception as e:
                                     logging.warning("Publish failed for layoutId=%s: %s", layout_id, e)
                                     # Attempt a fallback: search for the layout by name and retry publish
-                                    if isinstance(layout, dict):
-                                        layout_name = layout.get("layout") or layout.get("name") or None
-                                        if layout_name:
-                                            try:
-                                                found = xibo.get_layout_by_name(layout_name)
-                                                if isinstance(found, dict):
-                                                    found_id = str(found.get("layoutId") or found.get("id") or "")
-                                                    if found_id and found_id != layout_id:
-                                                        logging.info("Retrying publish with layoutId=%s (found by name '%s')", found_id, layout_name)
-                                                        xibo.publish_layout(found_id, dry_run=cfg.dry_run)
-                                            except Exception as e2:
-                                                logging.warning("Fallback publish attempt failed: %s", e2)
+                                    if layout_name:
+                                        try:
+                                            found = xibo.get_layout_by_name(layout_name)
+                                            if isinstance(found, dict):
+                                                found_id = str(found.get("layoutId") or found.get("id") or "")
+                                                if found_id and found_id != layout_id:
+                                                    logging.info("Retrying publish with layoutId=%s (found by name '%s')", found_id, layout_name)
+                                                    xibo.publish_layout(found_id, dry_run=cfg.dry_run)
+                                                    layout_id = found_id
+                                        except Exception as e2:
+                                            logging.warning("Fallback publish attempt failed: %s", e2)
+
+                                # Publishing can merge/replace the checked-out draft's id, so
+                                # re-resolve the authoritative layoutId by name before continuing.
+                                if layout_name and not cfg.dry_run:
+                                    try:
+                                        current = xibo.get_layout_by_name(layout_name)
+                                        if isinstance(current, dict):
+                                            current_id = str(current.get("layoutId") or current.get("id") or "")
+                                            if current_id and current_id != layout_id:
+                                                logging.info("Layout id changed after publish: %s -> %s", layout_id, current_id)
+                                                layout_id = current_id
+                                    except Exception as e3:
+                                        logging.warning("Failed to re-resolve layoutId after publish: %s", e3)
+
+                            # Tag the layout with MANAGED_TAG so it can be found by dynamic playlists
+                            try:
+                                xibo.tag_layout(layout_id, [cfg.managed_tag], dry_run=cfg.dry_run)
+                            except Exception as e:
+                                logging.warning("Failed to tag layoutId=%s with MANAGED_TAG: %s", layout_id, e)
 
                             if cfg.assign_layout_on_change and cfg.display_group_id:
                                 xibo.assign_layouts_to_displaygroup(cfg.display_group_id, [layout_id], dry_run=cfg.dry_run)
