@@ -11,3 +11,4 @@ __pycache__/
 *.mp4
 *.mov
 **/__pycache__/
+docs/PLAN.md
