@@ -102,6 +102,66 @@ the CMS rejects underscore headings and broadly rejects headings containing rese
 remaining physical headings use opaque `c11`-`c18` names; their source mappings are documented in
 the calendar schema. Cancelled events are excluded by default.
 
+### Calendar HTML packages
+
+`--upload-calendar-html` generates self-contained HTML calendar packages (`.htz` ZIP files), one
+per configured view, and deploys each to a named Xibo layout.
+
+#### Generation pipeline
+
+1. Load the calendar JSON snapshot selected by `CALENDAR_JSON_PATH`.
+2. For each view in `CALENDAR_HTML_VIEWS`, call `generate_calendar_packages()` from
+   `calendar_html.py`. Each package is a ZIP archive containing a single `index.html` with
+   embedded CSS — no external dependencies.
+3. Packages are written to `scripts/calendar_packages/` with names such as
+   `calendar_today_2026-08-20.htz`.
+4. For each package + layout name pair, call `deploy_calendar_package_to_layout()` in `client.py`.
+
+#### Deploy pipeline (`deploy_calendar_package_to_layout`)
+
+1. **Upload** – `upload_html_package()` uploads the `.htz` file to the Xibo library using the
+   existing `upload_media()` infrastructure. Mime type: `application/zip` (sent as
+   `application/octet-stream` via the field-fallback path; Xibo accepts both for ZIP files).
+2. **Layout** – `get_or_create_calendar_layout()` does a name-based lookup. If missing, it creates
+   a new layout with the best-matching 1920×1080 resolution.
+3. **Checkout** – the layout is checked out for editing before the package is assigned.
+4. **Assign** – `assign_html_package_to_layout()` fetches `GET /layout/{layoutId}?embed=regions,playlists`
+   to find the first region's `regionPlaylist.playlistId`, then calls
+   `POST /playlist/library/assign/{playlistId}` with `media[]={mediaId}`.
+5. **Publish** – `publish_layout()` is called when `CALENDAR_AUTO_PUBLISH=true`.
+6. **Re-resolve** – after publish the layout ID is re-fetched by name (Xibo may replace the
+   draft with a new published ID).
+7. **Tag** – the layout is tagged with `calendar-html`, `calendar-<view>`, and the date stamp.
+8. **Display group** – optional assignment and immediate-show via the shared `DISPLAY_GROUP_ID`
+   and `IMMEDIATE_SHOW_ON_CHANGE` settings.
+
+> **⚠ CMS verification note**: `assign_html_package_to_layout` uses the
+> `GET /layout/{layoutId}?embed=regions,playlists` → `POST /playlist/library/assign/{playlistId}`
+> path. This endpoint sequence has not been smoke-tested against a live Xibo 4.x CMS in this
+> repository. Verify the region/playlist embedding and the `media[]` parameter form against your
+> target CMS version before relying on it in production. The code includes a `# NOTE: requires
+> verification` comment. If the layout has no regions, a `RuntimeError` is raised — add a region
+> manually in the CMS first, or extend `get_or_create_calendar_layout` to create a region.
+
+#### Configuration keys
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `CALENDAR_ENABLE_HTML` | `false` | Enable HTML package generation. Only the `--upload-calendar-html` flag triggers the workflow; this key can be used by external orchestration. |
+| `CALENDAR_HTML_VIEWS` | `today,this_week,next_2_weeks` | Comma-separated views. Valid values: `today`, `this_week`, `next_2_weeks`. |
+| `CALENDAR_LAYOUT_NAMES` | `Calendar - Today,Calendar - This Week,Calendar - Next 2 Weeks` | Comma-separated layout names. Order must match `CALENDAR_HTML_VIEWS`. |
+| `CALENDAR_AUTO_PUBLISH` | `true` | Publish layouts after each package assignment. |
+| `CALENDAR_TIMEZONE` | `UTC` | IANA timezone name used for event filtering and display. |
+| `CALENDAR_PACKAGE_RETENTION_DAYS` | `30` | Delete local `.htz` files from `scripts/calendar_packages/` whose mtime exceeds this age. |
+
+`CALENDAR_HTML_VIEWS` and `CALENDAR_LAYOUT_NAMES` must have the same number of entries; `load_config()` raises `ValueError` otherwise. Each view name must be one of the three supported identifiers.
+
+#### Local cleanup
+
+After each run, `.htz` files in `scripts/calendar_packages/` whose `mtime` is older than
+`CALENDAR_PACKAGE_RETENTION_DAYS` days are deleted. Xibo library cleanup is out of scope for this
+phase; manage old library items via the CMS UI or the `DELETE /library/{mediaId}` endpoint.
+
 ## Sync Flow
 
 ### `sync_xibo.py`

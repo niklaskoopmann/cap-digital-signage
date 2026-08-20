@@ -50,6 +50,14 @@ class Config:
     log_level: str
     log_file: Optional[str]
 
+    # Calendar HTML packages
+    calendar_enable_html: bool
+    calendar_html_views: Tuple[str, ...]
+    calendar_layout_names: Tuple[str, ...]
+    calendar_auto_publish: bool
+    calendar_timezone: str
+    calendar_package_retention_days: int
+
 
 def getenv_bool(name: str, default: bool) -> bool:
     """Read a boolean environment variable with common truthy values.
@@ -113,6 +121,33 @@ def load_config() -> Config:
     if compare_mode not in ("filename", "hash"):
         raise ValueError("COMPARE_MODE must be 'filename' or 'hash'")
 
+    _valid_html_views = {"today", "this_week", "next_2_weeks"}
+    _html_views_raw = os.getenv("CALENDAR_HTML_VIEWS", "today,this_week,next_2_weeks").strip()
+    calendar_html_views: Tuple[str, ...] = tuple(
+        v.strip() for v in _html_views_raw.split(",") if v.strip()
+    )
+    for _v in calendar_html_views:
+        if _v not in _valid_html_views:
+            raise ValueError(
+                f"CALENDAR_HTML_VIEWS contains unknown view '{_v}'. "
+                f"Valid values: {', '.join(sorted(_valid_html_views))}"
+            )
+
+    _layout_names_raw = os.getenv(
+        "CALENDAR_LAYOUT_NAMES",
+        "Calendar - Today,Calendar - This Week,Calendar - Next 2 Weeks",
+    ).strip()
+    calendar_layout_names: Tuple[str, ...] = tuple(
+        n.strip() for n in _layout_names_raw.split(",") if n.strip()
+    )
+
+    if len(calendar_html_views) != len(calendar_layout_names):
+        raise ValueError(
+            f"CALENDAR_HTML_VIEWS has {len(calendar_html_views)} entries but "
+            f"CALENDAR_LAYOUT_NAMES has {len(calendar_layout_names)}. "
+            "They must have the same length."
+        )
+
     return Config(
         cms_base_url=cms_base_url,
         cms_verify_tls=getenv_bool("CMS_VERIFY_TLS", False),
@@ -155,4 +190,11 @@ def load_config() -> Config:
 
         log_level=os.getenv("LOG_LEVEL", "INFO").strip().upper(),
         log_file=os.getenv("LOG_FILE", "").strip() or None,
+
+        calendar_enable_html=getenv_bool("CALENDAR_ENABLE_HTML", False),
+        calendar_html_views=calendar_html_views,
+        calendar_layout_names=calendar_layout_names,
+        calendar_auto_publish=getenv_bool("CALENDAR_AUTO_PUBLISH", True),
+        calendar_timezone=os.getenv("CALENDAR_TIMEZONE", "UTC").strip() or "UTC",
+        calendar_package_retention_days=getenv_int("CALENDAR_PACKAGE_RETENTION_DAYS", 30),
     )

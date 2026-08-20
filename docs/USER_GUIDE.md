@@ -134,6 +134,79 @@ Calendar runs replace the DataSet contents. This avoids duplicates because Xibo'
 does not support an upsert key. The uploaded schema includes `eventIdentifier` and the other
 curated calendar fields described in the technical documentation.
 
+## Calendar HTML Packages
+
+The `--upload-calendar-html` command generates self-contained HTML calendar widgets, packages them
+as `.htz` files, and deploys each one to a named layout in Xibo — no manual CMS steps required.
+
+### Prerequisites
+
+- Python 3.10+ with the dependencies from `requirements.txt` installed.
+- A working Xibo CMS reachable at `CMS_BASE_URL`.
+- `CALENDAR_JSON_PATH` pointing to a directory containing a valid calendar snapshot.
+- Each target layout must have **at least one region** in the Xibo CMS before the first run.
+  The deploy step looks up the first region and assigns the package to its playlist. Create regions
+  manually in the CMS layout designer if they do not already exist.
+
+### Running
+
+Preview without changing anything:
+
+```powershell
+cd scripts
+python sync_xibo.py --upload-calendar-html --dry-run --yes
+```
+
+Deploy all configured views:
+
+```powershell
+python sync_xibo.py --upload-calendar-html --yes
+```
+
+### Configuration
+
+Add these keys to `scripts/.env` (all have sensible defaults):
+
+```env
+# ---- Calendar HTML packages ----
+CALENDAR_ENABLE_HTML=true
+
+# Views to generate (comma-separated). Valid: today, this_week, next_2_weeks
+CALENDAR_HTML_VIEWS=today,this_week,next_2_weeks
+
+# Layout names — one per view, in matching order.
+CALENDAR_LAYOUT_NAMES=Calendar - Today,Calendar - This Week,Calendar - Next 2 Weeks
+
+# Publish layouts automatically after each package upload.
+CALENDAR_AUTO_PUBLISH=true
+
+# IANA timezone for event filtering and time display.
+CALENDAR_TIMEZONE=Europe/Amsterdam
+
+# Delete local packages older than this many days.
+CALENDAR_PACKAGE_RETENTION_DAYS=30
+```
+
+### Troubleshooting
+
+**"Layout has no regions" error**
+The target layout exists but has no regions. Open the layout in the Xibo CMS layout designer,
+add a full-screen region, and re-run.
+
+**"No calendar packages were generated"**
+Check that `CALENDAR_JSON_PATH` resolves to a directory containing a valid snapshot file, and
+that `CALENDAR_HTML_VIEWS` contains at least one valid entry (`today`, `this_week`, or
+`next_2_weeks`).
+
+**Empty events in a view**
+The generated package renders "No events scheduled" when no events fall in the view window. This
+is expected — verify the snapshot is current and the configured `CALENDAR_TIMEZONE` matches the
+timezone of your events.
+
+**Wrong event times**
+Set `CALENDAR_TIMEZONE` to the correct IANA timezone (e.g. `Europe/Amsterdam`). Events with
+a different embedded timezone will log a warning and be displayed in the event's own timezone.
+
 ## The first run
 
 On the first run, the script will usually show the current settings and ask whether you want to edit them.

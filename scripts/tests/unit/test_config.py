@@ -21,6 +21,12 @@ def _clear_optional_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "CALENDAR_DATASET_NAME",
         "CALENDAR_DATASET_CODE",
         "CALENDAR_UPLOAD_CANCELLED_EVENTS",
+        "CALENDAR_ENABLE_HTML",
+        "CALENDAR_HTML_VIEWS",
+        "CALENDAR_LAYOUT_NAMES",
+        "CALENDAR_AUTO_PUBLISH",
+        "CALENDAR_TIMEZONE",
+        "CALENDAR_PACKAGE_RETENTION_DAYS",
     ):
         monkeypatch.delenv(key, raising=False)
 
@@ -116,3 +122,38 @@ def test_getenv_int_parses_and_defaults(monkeypatch: pytest.MonkeyPatch) -> None
 
     monkeypatch.delenv("TIMEOUT", raising=False)
     assert getenv_int("TIMEOUT", 30) == 30
+
+
+def test_load_config_calendar_html_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required_env(monkeypatch)
+
+    cfg = load_config()
+
+    assert cfg.calendar_enable_html is False
+    assert cfg.calendar_html_views == ("today", "this_week", "next_2_weeks")
+    assert cfg.calendar_layout_names == (
+        "Calendar - Today",
+        "Calendar - This Week",
+        "Calendar - Next 2 Weeks",
+    )
+    assert cfg.calendar_auto_publish is True
+    assert cfg.calendar_timezone == "UTC"
+    assert cfg.calendar_package_retention_days == 30
+
+
+def test_load_config_calendar_html_views_length_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("CALENDAR_HTML_VIEWS", "today,this_week")
+    monkeypatch.setenv("CALENDAR_LAYOUT_NAMES", "Calendar - Today")
+
+    with pytest.raises(ValueError, match="same length"):
+        load_config()
+
+
+def test_load_config_calendar_html_invalid_view(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("CALENDAR_HTML_VIEWS", "today,monthly")
+    monkeypatch.setenv("CALENDAR_LAYOUT_NAMES", "Calendar - Today,Calendar - Monthly")
+
+    with pytest.raises(ValueError, match="monthly"):
+        load_config()
