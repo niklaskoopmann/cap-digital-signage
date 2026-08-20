@@ -31,3 +31,12 @@ This repository centers on the Xibo media sync workflow.
 
 - Keep the root `Readme.md` short and user-facing.
 - Keep this file updated when the main script, Docker path, API spec, or player instructions change.
+
+## Testing
+
+- Automated tests live under `scripts/tests/unit/` (isolated logic) and `scripts/tests/integration/`
+  (multiple modules cooperating, e.g. `app.py` orchestration against a mocked `XiboClient`).
+- Every new piece of custom logic added to `scripts/xibo_sync/` must ship with a test: unit test in
+  the matching module's test file, plus an integration test if the change wires modules together.
+- Run tests with `py -m pytest` from `scripts/` (install `scripts/requirements-dev.txt` first). See
+  the "Testing" section in `docs/TECHNICAL.md` for full details.

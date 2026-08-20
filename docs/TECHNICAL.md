@@ -119,6 +119,30 @@ the calendar schema. Cancelled events are excluded by default.
 Use `py .\sync_xibo.py --upload-calendar --dry-run --yes` to inspect the selected snapshot and
 row count without changing Xibo. Calendar upload does not enter the media deletion workflow.
 
+## Testing
+
+Automated tests live under `scripts/tests/` and use `pytest` (it also runs plain `unittest.TestCase` tests unchanged):
+
+- `scripts/tests/unit/`: tests a single module/function in isolation. No network, no real Xibo CMS, no filesystem paths outside `tmp_path`. Covers pure logic such as `config.py`, `env_io.py`, `media.py`, and `calendar_data.py`.
+- `scripts/tests/integration/`: tests how multiple modules cooperate, e.g. `app.py` orchestration against a mocked `XiboClient`. Still fully offline; the CMS boundary is mocked/faked rather than hit over HTTP.
+
+Setup and run:
+
+```powershell
+cd scripts
+py -m pip install -r requirements-dev.txt
+py -m pytest            # full suite
+py -m pytest -m "not integration"   # unit tests only
+```
+
+**Convention: every new piece of custom logic needs tests.** Add a unit test for new
+parsing/transformation/diffing/decision logic in the module it lives in. If the change also wires
+together multiple modules (e.g. a new orchestration step in `app.py` calling `client.py`), add or
+extend an integration test with a mocked `XiboClient` rather than exercising a real CMS. Keep tests
+deterministic and offline; never depend on a live Xibo CMS or network access.
+
+`scripts/api_tests.py` is a manual, ad-hoc experiment script, not part of the automated suite.
+
 ## Comparison Modes
 
 ### `filename`
@@ -178,6 +202,7 @@ When changing behavior:
 2. Keep `Readme.md` focused on quick-start and user guidance.
 3. Add a dry-run verification step before any destructive run.
 4. Run `python -m py_compile scripts/*.py` or the equivalent syntax check.
+5. Add or update tests under `scripts/tests/` for any new or changed custom logic, then run `py -m pytest` from `scripts/` (see [Testing](#testing)).
 
 ## Docker / Xibo CMS Reference
 
