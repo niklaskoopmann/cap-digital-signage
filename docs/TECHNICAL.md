@@ -33,6 +33,10 @@ Both scripts load environment variables from `scripts/.env`.
 - `AUTH_MODE`: `none` or `oauth`.
 - `CMS_CLIENT_ID` / `CMS_CLIENT_SECRET`: OAuth client credentials from Xibo.
 - `LOCAL_MEDIA_DIR`: Folder containing local media files, usually `../media`.
+- `CALENDAR_JSON_PATH`: Calendar snapshot directory or JSON file. Relative paths resolve from `scripts/`.
+- `CALENDAR_DATASET_NAME`: Target Xibo DataSet name, default `office_calendar_events`.
+- `CALENDAR_DATASET_CODE`: Optional Xibo DataSet code used during lookup.
+- `CALENDAR_UPLOAD_CANCELLED_EVENTS`: Include cancelled events in the replacement snapshot when `true`.
 - `MEDIA_EXTENSIONS`: File extensions that count as media.
 - `COMPARE_MODE`: `filename` or `hash`.
 - `MANAGED_TAG`: Tag used to mark media managed by the sync script.
@@ -42,7 +46,6 @@ Both scripts load environment variables from `scripts/.env`.
 - `DELETE_REMOTE_NOT_LOCAL`: Default delete choice for interactive runs.
 - `DRY_RUN`: If `true`, suppresses changes.
 - `DISPLAY_GROUP_ID`: Optional display group to trigger Collect Now.
-- `TRIGGER_COLLECTNOW_ON_CHANGES`: Whether to trigger Collect Now after modifications.
 - `TRIGGER_COLLECTNOW_ON_CHANGES`: Whether to trigger Collect Now after modifications.
 
 ### Layout / Display workflow (optional)
@@ -83,6 +86,22 @@ Notes:
 - `LOG_LEVEL`: Logging level.
 - `LOG_FILE`: Optional file log destination.
 
+### Calendar upload
+
+`--upload-calendar` selects the newest file matching
+`office_calendar_events_YYYY-MM-DD_HH-MM-SS.json` when `CALENDAR_JSON_PATH` is a directory.
+Selection uses the timestamp in the filename. The JSON must contain a Microsoft Graph-style
+top-level `value` array.
+
+The workflow creates the configured local DataSet when it is missing, ensures the curated calendar
+columns exist, and imports the current snapshot with `overwrite=1`. This replacement behavior is
+intentional: Xibo's CSV import endpoint has no unique-key/upsert option, so append-only imports
+would duplicate events on every run. `eventIdentifier` preserves the source event ID for
+downstream filtering and identification. Xibo-compatible camelCase headings are used because
+the CMS rejects underscore headings and broadly rejects headings containing reserved tokens. The
+remaining physical headings use opaque `c11`-`c18` names; their source mappings are documented in
+the calendar schema. Cancelled events are excluded by default.
+
 ## Sync Flow
 
 ### `sync_xibo.py`
@@ -96,6 +115,9 @@ Notes:
 7. Upload missing local items if enabled.
 8. Delete remote-only items if the user requested deletion.
 9. Optionally trigger Collect Now.
+
+Use `py .\sync_xibo.py --upload-calendar --dry-run --yes` to inspect the selected snapshot and
+row count without changing Xibo. Calendar upload does not enter the media deletion workflow.
 
 ## Comparison Modes
 

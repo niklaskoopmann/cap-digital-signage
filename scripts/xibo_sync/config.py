@@ -20,6 +20,10 @@ class Config:
     cms_client_secret: Optional[str]
 
     local_media_dir: Path
+    calendar_json_path: Path
+    calendar_dataset_name: str
+    calendar_dataset_code: Optional[str]
+    calendar_upload_cancelled_events: bool
     media_extensions: Tuple[str, ...]
     compare_mode: str
 
@@ -119,6 +123,13 @@ def load_config() -> Config:
         cms_client_secret=cms_client_secret,
 
         local_media_dir=Path(local_dir),
+        calendar_json_path=Path(os.getenv(
+            "CALENDAR_JSON_PATH",
+            r"C:\Users\rogrun\OneDrive - Capgemini\Xibo_Sync\office_calendar",
+        ).strip()),
+        calendar_dataset_name=os.getenv("CALENDAR_DATASET_NAME", "office_calendar_events").strip(),
+        calendar_dataset_code=os.getenv("CALENDAR_DATASET_CODE", "").strip() or None,
+        calendar_upload_cancelled_events=getenv_bool("CALENDAR_UPLOAD_CANCELLED_EVENTS", False),
         media_extensions=media_extensions,
         compare_mode=compare_mode,
 

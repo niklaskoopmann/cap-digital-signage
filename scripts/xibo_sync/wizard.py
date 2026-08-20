@@ -78,6 +78,25 @@ def config_wizard(env_path: Path) -> None:
         get("LOCAL_MEDIA_DIR", "../media"),
         help_text="Relative to scripts/ recommended (../media).",
     )
+    env_data["CALENDAR_JSON_PATH"] = prompt_edit(
+        "CALENDAR_JSON_PATH",
+        get("CALENDAR_JSON_PATH", r"C:\Users\rogrun\OneDrive - Capgemini\Xibo_Sync\office_calendar"),
+        help_text="Calendar snapshot directory or JSON file. Relative paths are resolved from scripts/.",
+    )
+    env_data["CALENDAR_DATASET_NAME"] = prompt_edit(
+        "CALENDAR_DATASET_NAME",
+        get("CALENDAR_DATASET_NAME", "office_calendar_events"),
+    )
+    env_data["CALENDAR_DATASET_CODE"] = prompt_edit(
+        "CALENDAR_DATASET_CODE",
+        get("CALENDAR_DATASET_CODE", ""),
+        help_text="Optional stable Xibo DataSet code. Blank disables code filtering.",
+    )
+    env_data["CALENDAR_UPLOAD_CANCELLED_EVENTS"] = prompt_edit(
+        "CALENDAR_UPLOAD_CANCELLED_EVENTS",
+        get("CALENDAR_UPLOAD_CANCELLED_EVENTS", "false"),
+        help_text="Include cancelled events in the replacement snapshot.",
+    )
     env_data["MEDIA_EXTENSIONS"] = prompt_edit(
         "MEDIA_EXTENSIONS",
         get("MEDIA_EXTENSIONS", ".jpg,.jpeg,.png,.gif,.mp4,.mov,.mkv,.webm"),

@@ -18,6 +18,8 @@ This repository centers on the Xibo media sync workflow.
 - The bundled Xibo CMS installation lives in `xibo/xibo-docker-4.4.2/`.
 - Use `xibo/xibo-docker-4.4.2/docker-compose.yml` for the Docker-based CMS stack.
 - The Xibo API specification is in `xibo/docs/swagger.json`.
+- Calendar snapshots are uploaded with `scripts/sync_xibo.py --upload-calendar`; the newest
+	`office_calendar_events_yyyy-MM-dd_HH-mm-ss.json` file is selected and replaces the target DataSet.
 
 ## Player reference
 

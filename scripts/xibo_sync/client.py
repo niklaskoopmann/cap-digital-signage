@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import io
 import time
 from pathlib import Path
 from typing import List, Optional
@@ -170,6 +171,95 @@ class XiboClient:
             )
         if not r.ok:
             raise RuntimeError(f"API check failed ({r.status_code}): {r.text}")
+
+    def get_dataset(self, name: str, code: Optional[str] = None) -> Optional[dict]:
+        """Find a DataSet by name, optionally constrained by its code."""
+        params = {"dataSet": name}
+        if code:
+            params["code"] = code
+        r = self._request("GET", self._api_url("/dataset"), params=params)
+        if not r.ok:
+            raise RuntimeError(f"DataSet lookup failed ({r.status_code}): {r.text}")
+        data = self._extract_data(r.json())
+        if not isinstance(data, list):
+            raise RuntimeError(f"Unexpected DataSet lookup format: {r.text}")
+        return data[0] if data else None
+
+    def create_dataset(self, name: str, code: Optional[str] = None) -> dict:
+        """Create a local, non-real-time text DataSet."""
+        payload = {
+            "dataSet": name,
+            "isRemote": 0,
+            "isRealTime": 0,
+            "dataConnectorSource": "none",
+        }
+        if code:
+            payload["code"] = code
+        r = self._request("POST", self._api_url("/dataset"), data=payload)
+        if not r.ok:
+            raise RuntimeError(f"DataSet creation failed ({r.status_code}): {r.text}")
+        data = self._extract_data(r.json())
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Unexpected DataSet creation format: {r.text}")
+        return data
+
+    def list_dataset_columns(self, dataset_id: str) -> List[dict]:
+        """List columns belonging to a DataSet."""
+        columns: List[dict] = []
+        start = 0
+        page_size = 1000
+
+        while True:
+            r = self._request(
+                "GET",
+                self._api_url(f"/dataset/{dataset_id}/column"),
+                params={"start": start, "length": page_size},
+            )
+            if not r.ok:
+                raise RuntimeError(f"DataSet column lookup failed ({r.status_code}): {r.text}")
+            data = self._extract_data(r.json())
+            if not isinstance(data, list):
+                raise RuntimeError(f"Unexpected DataSet column format: {r.text}")
+            columns.extend(data)
+            if len(data) < page_size:
+                return columns
+            start += page_size
+
+    def create_dataset_column(self, dataset_id: str, heading: str, column_order: int) -> dict:
+        """Create a standard text/value DataSet column."""
+        payload = {
+            "heading": heading,
+            "columnOrder": column_order,
+            "dataTypeId": 1,
+            "dataSetColumnTypeId": 1,
+            "showFilter": 0,
+            "showSort": 0,
+        }
+        r = self._request("POST", self._api_url(f"/dataset/{dataset_id}/column"), data=payload)
+        if not r.ok:
+            raise RuntimeError(f"DataSet column creation failed ({r.status_code}): {r.text}")
+        data = self._extract_data(r.json())
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Unexpected DataSet column creation format: {r.text}")
+        return data
+
+    def import_dataset_csv(self, dataset_id: str, csv_content: bytes, column_ids: List[str]) -> None:
+        """Replace all DataSet rows using a header-bearing CSV snapshot."""
+        fields = {
+            "files": ("office_calendar_events.csv", io.BytesIO(csv_content), "text/csv"),
+            "overwrite": "1",
+            "ignorefirstrow": "1",
+        }
+        fields.update({f"csvImport_{column_id}": str(index) for index, column_id in enumerate(column_ids, 1)})
+        encoder = MultipartEncoder(fields=fields)
+        r = self._request(
+            "POST",
+            self._api_url(f"/dataset/import/{dataset_id}"),
+            data=encoder,
+            headers={"Content-Type": encoder.content_type},
+        )
+        if not r.ok:
+            raise RuntimeError(f"DataSet CSV import failed ({r.status_code}): {r.text}")
 
     def list_library(self, managed_tag: Optional[str], folder_id: Optional[str]) -> List[dict]:
         """Fetch library items, optionally constrained by tag and folder.

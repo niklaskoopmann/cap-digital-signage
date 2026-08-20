@@ -9,6 +9,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from rich.prompt import Confirm
 
+from .calendar_data import CALENDAR_COLUMNS, csv_bytes, load_events
 from .client import XiboClient
 from .config import load_config
 from .env_io import read_env_file, write_env_file
@@ -39,6 +40,64 @@ def setup_logging(level: str, log_file: str | None, scripts_dir: Path) -> None:
     )
 
 
+def run_calendar_upload(cfg, scripts_dir: Path) -> int:
+    """Replace the configured Xibo DataSet with the newest calendar snapshot."""
+    calendar_path = cfg.calendar_json_path
+    if not calendar_path.is_absolute():
+        calendar_path = (scripts_dir / calendar_path).resolve()
+
+    snapshot, rows = load_events(calendar_path, cfg.calendar_upload_cancelled_events)
+    ui_info(f"Calendar snapshot: {snapshot}")
+    ui_info(f"Calendar rows: {len(rows)} | DataSet: {cfg.calendar_dataset_name}")
+    ui_info(f"Calendar columns: {len(CALENDAR_COLUMNS)}")
+
+    xibo = XiboClient(cfg.cms_base_url, cfg.cms_verify_tls, cfg.cms_timeout)
+    if cfg.auth_mode == "oauth":
+        assert cfg.cms_client_id and cfg.cms_client_secret
+        xibo.authenticate_oauth(cfg.cms_client_id, cfg.cms_client_secret)
+    xibo.health_check()
+    ui_ok("Xibo API reachable")
+
+    if cfg.dry_run:
+        ui_ok(f"[DRY_RUN] Would replace DataSet with {len(rows)} row(s)")
+        return 0
+
+    dataset = xibo.get_dataset(cfg.calendar_dataset_name, cfg.calendar_dataset_code)
+    if dataset is None:
+        dataset = xibo.create_dataset(cfg.calendar_dataset_name, cfg.calendar_dataset_code)
+        ui_ok(f"Created DataSet: {cfg.calendar_dataset_name}")
+    else:
+        ui_info(f"Using existing DataSet: {cfg.calendar_dataset_name}")
+
+    dataset_id = str(dataset.get("dataSetId") or dataset.get("id") or "")
+    if not dataset_id:
+        raise RuntimeError(f"DataSet response did not include an ID: {dataset}")
+
+    columns = xibo.list_dataset_columns(dataset_id)
+    columns_by_heading = {
+        str(column.get("heading")): column
+        for column in columns
+        if column.get("heading")
+    }
+    column_ids: list[str] = []
+    for order, heading in enumerate(CALENDAR_COLUMNS, 1):
+        column = columns_by_heading.get(heading)
+        if column is None:
+            column = xibo.create_dataset_column(dataset_id, heading, order)
+        column_id = str(column.get("dataSetColumnId") or column.get("id") or "")
+        if not column_id:
+            raise RuntimeError(f"DataSet column response did not include an ID: {column}")
+        column_ids.append(column_id)
+
+    xibo.import_dataset_csv(dataset_id, csv_bytes(rows), column_ids)
+    ui_ok(f"Replaced DataSet rows: {len(rows)}")
+
+    if cfg.trigger_collectnow_on_changes and cfg.display_group_id:
+        xibo.collect_now(cfg.display_group_id, dry_run=False)
+        ui_ok("Collect Now triggered")
+    return 0
+
+
 def main() -> int:
     """Run the sync CLI, including config prompts, diffing, and actions.
 
@@ -53,6 +112,7 @@ def main() -> int:
     parser.add_argument("--config", action="store_true", help="Run configuration wizard and exit")
     parser.add_argument("--yes", "-y", action="store_true", help="Non-interactive: accept defaults and skip prompts")
     parser.add_argument("--dry-run", action="store_true", help="Preview actions without uploading/deleting")
+    parser.add_argument("--upload-calendar", action="store_true", help="Replace the calendar DataSet from the latest snapshot")
     parser.add_argument("--delete", dest="delete", action="store_true", help="Delete remote-only media without prompt")
     parser.add_argument("--no-delete", dest="delete", action="store_false", help="Do not delete remote-only media")
     parser.set_defaults(delete=None)
@@ -86,6 +146,16 @@ def main() -> int:
 
     if not cfg.local_media_dir.is_absolute():
         cfg.local_media_dir = (scripts_dir / cfg.local_media_dir).resolve()
+
+    if args.upload_calendar:
+        if args.dry_run:
+            cfg.dry_run = True
+        try:
+            return run_calendar_upload(cfg, scripts_dir)
+        except Exception as e:
+            logging.exception("Calendar upload failed: %s", e)
+            ui_error(f"Calendar upload failed: {e}")
+            return 2
 
     console.print()
     ui_header("Run Options", "Choose whether remote-only media should be deleted this run")

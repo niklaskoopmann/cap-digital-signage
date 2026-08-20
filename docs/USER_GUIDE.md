@@ -34,6 +34,9 @@ The main sync actions are:
 	 - If `IMMEDIATE_SHOW_ON_CHANGE=true`, the script sends a change-layout action to the display
 		 group which is delivered to online players and will make them show the layout immediately.
 
+The calendar workflow is separate from media sync. It selects the newest timestamped calendar JSON
+snapshot and replaces the configured Xibo DataSet with that snapshot.
+
 ## Before you start
 
 You need:
@@ -59,6 +62,23 @@ Use dry-run mode if you want to see what would happen without uploading or delet
 ```powershell
 py .\sync_xibo.py --dry-run --yes
 ```
+
+### Calendar preview
+
+Preview the newest calendar snapshot without changing Xibo:
+
+```powershell
+py .\sync_xibo.py --upload-calendar --dry-run --yes
+```
+
+Run the calendar replacement:
+
+```powershell
+py .\sync_xibo.py --upload-calendar --yes
+```
+
+When `CALENDAR_JSON_PATH` points to a directory, the script selects the newest file named like
+`office_calendar_events_2026-08-19_13-10-01.json`, based on the timestamp in the filename.
 
 ### Real sync
 
@@ -105,6 +125,14 @@ The most important entries in `scripts/.env` are:
 - `ONLY_DELETE_MANAGED_TAG`: keep this enabled unless you are sure.
 - `DELETE_REMOTE_NOT_LOCAL`: default answer for the delete question.
 - `DISPLAY_GROUP_ID`: optional Xibo display group to refresh after sync.
+- `CALENDAR_JSON_PATH`: calendar snapshot directory or JSON file; relative paths resolve from `scripts/`.
+- `CALENDAR_DATASET_NAME`: target DataSet, default `office_calendar_events`.
+- `CALENDAR_DATASET_CODE`: optional stable DataSet code.
+- `CALENDAR_UPLOAD_CANCELLED_EVENTS`: `false` excludes cancelled events; set `true` to include them.
+
+Calendar runs replace the DataSet contents. This avoids duplicates because Xibo's CSV import API
+does not support an upsert key. The uploaded schema includes `eventIdentifier` and the other
+curated calendar fields described in the technical documentation.
 
 ## The first run
 
