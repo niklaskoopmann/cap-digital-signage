@@ -21,6 +21,10 @@ The implementation now lives under `scripts/xibo_sync/` so the configuration, UI
   - `logs/`: optional log output target.
 - `xibo/`: Xibo CMS Docker assets, templates, and documentation.
 
+`tzdata` is included in the runtime requirements because Windows Python installations do not
+always provide the IANA timezone database used by `zoneinfo`. Calendar timezone names such as
+`UTC` and `America/New_York` therefore depend on this package.
+
 ## Runtime Configuration
 
 Both scripts load environment variables from `scripts/.env`.
@@ -125,9 +129,10 @@ per configured view, and deploys each to a named Xibo layout.
 2. **Layout** – `get_or_create_calendar_layout()` does a name-based lookup. If missing, it creates
    a new layout with the best-matching 1920×1080 resolution.
 3. **Checkout** – the layout is checked out for editing before the package is assigned.
-4. **Assign** – `assign_html_package_to_layout()` fetches `GET /layout/{layoutId}?embed=regions,playlists`
-   to find the first region's `regionPlaylist.playlistId`, then calls
-   `POST /playlist/library/assign/{playlistId}` with `media[]={mediaId}`.
+4. **Assign** – `assign_html_package_to_layout()` fetches `GET /layout?layoutId={layoutId}` with
+  `embed=regions,playlists` to find the first region's `regionPlaylist.playlistId`. If the layout
+  has no regions, it creates a 1920×1080 frame with `POST /region/{layoutId}` and re-fetches the
+  layout. It then calls `POST /playlist/library/assign/{playlistId}` with `media[]={mediaId}`.
 5. **Publish** – `publish_layout()` is called when `CALENDAR_AUTO_PUBLISH=true`.
 6. **Re-resolve** – after publish the layout ID is re-fetched by name (Xibo may replace the
    draft with a new published ID).
@@ -136,12 +141,10 @@ per configured view, and deploys each to a named Xibo layout.
    and `IMMEDIATE_SHOW_ON_CHANGE` settings.
 
 > **⚠ CMS verification note**: `assign_html_package_to_layout` uses the
-> `GET /layout/{layoutId}?embed=regions,playlists` → `POST /playlist/library/assign/{playlistId}`
-> path. This endpoint sequence has not been smoke-tested against a live Xibo 4.x CMS in this
-> repository. Verify the region/playlist embedding and the `media[]` parameter form against your
-> target CMS version before relying on it in production. The code includes a `# NOTE: requires
-> verification` comment. If the layout has no regions, a `RuntimeError` is raised — add a region
-> manually in the CMS first, or extend `get_or_create_calendar_layout` to create a region.
+  `GET /layout?layoutId={layoutId}&embed=regions,playlists` → optional
+  `POST /region/{layoutId}` → `POST /playlist/library/assign/{playlistId}` path. Verify the
+  region/playlist embedding and the `media[]` parameter form against your target CMS version
+  before relying on it in production.
 
 #### Configuration keys
 
@@ -226,7 +229,9 @@ Uploads use `requests_toolbelt.MultipartEncoder` and a progress bar from Rich.
 Implementation notes:
 
 - Several multipart field names are tried to support Xibo version differences.
-- Upload success is accepted for HTTP `200` and `201`, but the script then re-queries the library by `mediaId` and requires Xibo to return the item as `valid`.
+- Upload success is accepted for HTTP `200` and `201`, but the script then verifies the item in the
+  library and requires Xibo to return it as `valid`. If the upload response omits `mediaId`, the
+  script falls back to an exact library-name search using the uploaded filename.
 - If Xibo accepts the upload response but the library item is missing or marked invalid, the run fails so unsupported files are surfaced immediately.
 - After upload verification passes, the script tags the item with `MANAGED_TAG` and, in hash mode, the hash tag as well.
 

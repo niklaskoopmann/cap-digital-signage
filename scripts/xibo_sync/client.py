@@ -22,6 +22,35 @@ from rich.progress import (
 from .ui import console
 
 
+def _upload_media_id(created: dict) -> str:
+    """Extract a media ID from the response shapes returned by Xibo uploads."""
+    media_id = created.get("mediaId") or created.get("id")
+    files = created.get("files")
+    if not media_id and isinstance(files, list) and files:
+        first_file = files[0]
+        if isinstance(first_file, dict):
+            media_id = first_file.get("mediaId") or first_file.get("id")
+    return str(media_id) if media_id is not None else ""
+
+
+def _layout_id_from_payload(payload: object) -> str:
+    """Extract a layout ID from direct or nested Xibo layout responses."""
+    if isinstance(payload, dict):
+        direct_id = payload.get("layoutId") or payload.get("id")
+        if direct_id:
+            return str(direct_id)
+        for key in ("layout", "data", "payload"):
+            nested_id = _layout_id_from_payload(payload.get(key))
+            if nested_id:
+                return nested_id
+    elif isinstance(payload, list):
+        for item in payload:
+            nested_id = _layout_id_from_payload(item)
+            if nested_id:
+                return nested_id
+    return ""
+
+
 class XiboClient:
     """Minimal Xibo CMS API client used by the sync workflow."""
 
@@ -330,6 +359,24 @@ class XiboClient:
 
         raise RuntimeError(f"Unexpected library item lookup format for mediaId={media_id}: {r.text}")
 
+    def find_library_item_by_name(self, name: str) -> Optional[dict]:
+        """Find the newest library item with an exact media name."""
+        r = self._request(
+            "GET",
+            self._api_url("/library"),
+            params={"media": name, "length": 10, "sortBy": "modifiedDt", "sortDir": "desc"},
+        )
+        if not r.ok:
+            raise RuntimeError(f"Library name lookup failed for name={name!r} ({r.status_code}): {r.text}")
+
+        data = self._extract_data(r.json())
+        if not isinstance(data, list):
+            return data if isinstance(data, dict) else None
+        for item in data:
+            if isinstance(item, dict) and str(item.get("name") or item.get("fileName") or "") == name:
+                return item
+        return None
+
     def tag_media(self, media_id: str, tags: List[str]) -> None:
         """Attach one or more metadata tags to a media item in Xibo.
 
@@ -470,14 +517,28 @@ class XiboClient:
                             logging.warning("Upload succeeded but response has no media object: %s", payload)
                             return None
 
-                        media_id = str(created.get("files")[0].get("mediaId") if created.get("files") else created.get("mediaId") or created.get("id") or "")
+                        media_id = _upload_media_id(created)
 
                         if not media_id:
-                            raise RuntimeError(
-                                f"Upload of '{file_path.name}' succeeded but Xibo did not return a mediaId, so the upload cannot be verified."
+                            logging.warning(
+                                "Upload response for '%s' did not include a mediaId; searching the library by name.",
+                                file_path.name,
                             )
+                            verified = self.find_library_item_by_name(file_path.name)
+                            if not verified:
+                                raise RuntimeError(
+                                    f"Upload of '{file_path.name}' succeeded, but Xibo returned no mediaId "
+                                    "and the uploaded item was not found by name."
+                                )
+                            media_id = _upload_media_id(verified)
+                            if not media_id:
+                                raise RuntimeError(
+                                    f"Upload of '{file_path.name}' was found in Xibo, but its library record "
+                                    "did not include a mediaId."
+                                )
 
-                        verified = self.get_library_item(media_id)
+                        else:
+                            verified = self.get_library_item(media_id)
                         if not verified:
                             raise RuntimeError(
                                 f"Upload of '{file_path.name}' was accepted, but mediaId={media_id} is not present in the Xibo library."
@@ -781,6 +842,17 @@ class XiboClient:
             return data
         return None
 
+    def get_draft_layout_id(self, layout_id: str) -> Optional[str]:
+        """Find the draft record associated with a layout ID, if one exists."""
+        r = self._request(
+            "GET",
+            self._api_url("/layout"),
+            params={"layoutId": layout_id, "showDrafts": 1, "publishedStatusId": 2, "length": 1},
+        )
+        if not r.ok:
+            return None
+        return _layout_id_from_payload(self._extract_data(r.json())) or None
+
     def publish_layout(self, layout_id: str, publish_now: bool = True, dry_run: bool = False) -> None:
         """Publish a layout so that players can play the new version.
 
@@ -910,7 +982,7 @@ class XiboClient:
     ) -> None:
         """Assign an uploaded HTML package to the first region of a layout.
 
-        Uses ``GET /layout/{layoutId}`` to discover the first region's playlist,
+        Uses ``GET /layout?layoutId={layoutId}`` to discover the first region's playlist,
         then ``POST /playlist/library/assign/{playlistId}`` to attach the media.
 
         # NOTE: requires verification — the playlist/library/assign endpoint
@@ -936,7 +1008,11 @@ class XiboClient:
             )
             return
 
-        r = self._request("GET", self._api_url(f"/layout/{layout_id}"), params={"embed": "regions,playlists"})
+        r = self._request(
+            "GET",
+            self._api_url("/layout"),
+            params={"layoutId": layout_id, "embed": "regions,playlists", "length": 1},
+        )
         if not r.ok:
             raise RuntimeError(
                 f"Fetch layout layoutId={layout_id} failed ({r.status_code}): {r.text}"
@@ -950,10 +1026,36 @@ class XiboClient:
 
         regions = layout_data.get("regions") or []
         if not regions:
-            raise RuntimeError(
-                f"Layout layoutId={layout_id} has no regions. "
-                "Add a region in the Xibo CMS before assigning an HTML package."
+            logging.info("Layout layoutId=%s has no regions; creating a full-screen region.", layout_id)
+            create_region = self._request(
+                "POST",
+                self._api_url(f"/region/{layout_id}"),
+                data={"type": "frame", "width": 1920, "height": 1080, "top": 0, "left": 0},
             )
+            if not create_region.ok:
+                raise RuntimeError(
+                    f"Create region for layoutId={layout_id} failed "
+                    f"({create_region.status_code}): {create_region.text}"
+                )
+
+            r = self._request(
+                "GET",
+                self._api_url("/layout"),
+                params={"layoutId": layout_id, "embed": "regions,playlists", "length": 1},
+            )
+            if not r.ok:
+                raise RuntimeError(
+                    f"Fetch layout layoutId={layout_id} after region creation failed "
+                    f"({r.status_code}): {r.text}"
+                )
+            layout_data = self._extract_data(r.json())
+            if isinstance(layout_data, list):
+                layout_data = layout_data[0] if layout_data else {}
+            regions = layout_data.get("regions") if isinstance(layout_data, dict) else []
+            if not regions:
+                raise RuntimeError(
+                    f"Layout layoutId={layout_id} still has no regions after creation."
+                )
 
         first_region = regions[0] if isinstance(regions, list) else next(iter(regions.values()))
         playlist_id = None
@@ -1057,26 +1159,51 @@ class XiboClient:
         checkout_r = self._request("PUT", self._api_url(f"/layout/checkout/{layout_id}"))
         if checkout_r.ok:
             checkout_data = self._extract_data(checkout_r.json())
-            if isinstance(checkout_data, list):
-                checkout_data = checkout_data[0] if checkout_data else None
-            if isinstance(checkout_data, dict):
-                new_id = str(checkout_data.get("layoutId") or checkout_data.get("id") or "")
-                if new_id and new_id != layout_id:
-                    logging.info("Checkout returned new draft layoutId=%s (was %s)", new_id, layout_id)
-                    layout_id = new_id
+            new_id = _layout_id_from_payload(checkout_data)
+            if new_id and new_id != layout_id:
+                logging.info("Checkout returned new draft layoutId=%s (was %s)", new_id, layout_id)
+                layout_id = new_id
+            elif not new_id:
+                logging.warning("Checkout layoutId=%s succeeded but returned no layout ID: %s", layout_id, checkout_r.text)
+                draft_id = self.get_draft_layout_id(layout_id)
+                if draft_id:
+                    layout_id = draft_id
         else:
             already_editable = False
             if checkout_r.status_code == 422:
                 try:
                     msg = checkout_r.json().get("message", "").lower()
-                    already_editable = "already checked out" in msg or "already published" in msg
+                    already_editable = "already checked out" in msg
                 except Exception:
                     pass
-            if not already_editable:
-                logging.warning(
-                    "Checkout layoutId=%s returned %s; proceeding anyway: %s",
-                    layout_id, checkout_r.status_code, checkout_r.text,
-                )
+            if already_editable:
+                logging.info("LayoutId=%s has a stale checkout; discarding and retrying checkout.", layout_id)
+                discard_r = self._request("PUT", self._api_url(f"/layout/discard/{layout_id}"))
+                if not discard_r.ok:
+                    raise RuntimeError(
+                        f"Discard stale checkout for layoutId={layout_id} failed "
+                        f"({discard_r.status_code}): {discard_r.text}"
+                    )
+                checkout_r = self._request("PUT", self._api_url(f"/layout/checkout/{layout_id}"))
+                if not checkout_r.ok:
+                    raise RuntimeError(
+                        f"Checkout layoutId={layout_id} failed after discard "
+                        f"({checkout_r.status_code}): {checkout_r.text}"
+                    )
+                new_id = _layout_id_from_payload(self._extract_data(checkout_r.json()))
+                if new_id:
+                    logging.info("Retry checkout returned draft layoutId=%s (was %s)", new_id, layout_id)
+                    layout_id = new_id
+            else:
+                draft_id = self.get_draft_layout_id(layout_id)
+                if draft_id:
+                    logging.info("Using existing draft layoutId=%s for layoutId=%s", draft_id, layout_id)
+                    layout_id = draft_id
+                else:
+                    logging.warning(
+                        "Checkout layoutId=%s returned %s; proceeding anyway: %s",
+                        layout_id, checkout_r.status_code, checkout_r.text,
+                    )
 
         # Step 4: Assign package to layout's first region playlist
         self.assign_html_package_to_layout(layout_id, media_id, dry_run=False)

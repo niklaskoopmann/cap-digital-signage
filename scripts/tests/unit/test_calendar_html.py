@@ -10,11 +10,18 @@ import pytest
 
 from xibo_sync.calendar_html import (
     CalendarEvent,
+    _coerce_timezone,
     filter_events_by_view,
     generate_calendar_packages,
     package_html_to_zip,
     render_calendar_html,
 )
+
+
+def test_coerce_timezone_resolves_named_timezone() -> None:
+    resolved_timezone = _coerce_timezone("UTC")
+
+    assert resolved_timezone.utcoffset(datetime.min) == timezone.utc.utcoffset(datetime.min)
 
 
 def _event(
@@ -62,6 +69,26 @@ def test_filter_events_by_view_excludes_past_and_sorts_by_start() -> None:
     assert today[1].location == "Room A"
     assert today[1].organizer == "Alex"
     assert today[0].all_day is True
+
+
+def test_filter_events_by_view_accepts_flattened_datetime_fields() -> None:
+    event = {
+        "id": "flat-event",
+        "subject": "Flattened event",
+        "startDateTime": "2026-08-20T10:00:00",
+        "startTimeZone": "UTC",
+        "endDateTime": "2026-08-20T11:00:00",
+        "endTimeZone": "UTC",
+    }
+
+    filtered = filter_events_by_view(
+        [event],
+        "today",
+        timezone.utc,
+        now=datetime(2026, 8, 20, 9, 0, tzinfo=timezone.utc),
+    )
+
+    assert [item.subject for item in filtered] == ["Flattened event"]
 
 
 def test_filter_events_by_view_rejects_unknown_view() -> None:

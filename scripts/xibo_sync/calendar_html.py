@@ -107,6 +107,8 @@ def _text(value: Any) -> str:
 
 def _event_timezone_name(event: dict[str, Any], default_timezone: str | tzinfo | None) -> str:
     candidate = _text(_nested(event, "start", "timeZone")).strip()
+    if not candidate:
+        candidate = _text(event.get("startTimeZone")).strip()
     if candidate:
         return candidate
     if isinstance(default_timezone, tzinfo):
@@ -116,15 +118,16 @@ def _event_timezone_name(event: dict[str, Any], default_timezone: str | tzinfo |
 
 def _event_datetime(event: dict[str, Any], key: str, default_timezone: tzinfo) -> datetime | None:
     container = event.get(key)
-    if not isinstance(container, dict):
-        return None
-
-    raw_value = _text(container.get("dateTime")).strip()
+    if isinstance(container, dict):
+        raw_value = _text(container.get("dateTime")).strip()
+        tz_name = _text(container.get("timeZone")).strip()
+    else:
+        raw_value = _text(event.get(f"{key}DateTime")).strip()
+        tz_name = _text(event.get(f"{key}TimeZone")).strip()
     if not raw_value:
         return None
 
     dt = _parse_iso_datetime(raw_value)
-    tz_name = _text(container.get("timeZone")).strip()
     if dt.tzinfo is None:
         if tz_name:
             try:
