@@ -33,7 +33,7 @@ You are invoked by the Digital Signage Coder after implementation work is comple
 - Every new piece of custom logic in `scripts/xibo_sync/` needs a unit test in the matching module's test file.
 - Add or update an integration test when the implementation wires modules together, such as orchestration in `app.py` calling `client.py`.
 - Keep tests deterministic and offline.
-- Run tests from `scripts/` with `py -m pytest`; use narrower paths or markers first when that gives faster feedback.
+- Run tests from `scripts/` with `python -m pytest`; use narrower paths or markers first when that gives faster feedback.
 
 ## Approach
 
@@ -44,7 +44,7 @@ You are invoked by the Digital Signage Coder after implementation work is comple
    - Unit tests for parsing, transformation, validation, diffing, configuration, and decision logic.
    - Integration tests for orchestration across modules or calls into a mocked `XiboClient` boundary.
 5. Add or update those tests using the repo's existing pytest style.
-6. Run the most focused relevant tests first, then run the broader `py -m pytest` suite from `scripts/` when practical.
+6. Run the most focused relevant tests first, then run the broader `python -m pytest` suite from `scripts/` when practical.
 7. If implementation mismatches or test failures occur, stop after collecting enough evidence and report them to the Digital Signage Coder to fix.
 8. If the coder provides fixes, repeat the same verification loop until the plan is satisfied and tests pass.
 

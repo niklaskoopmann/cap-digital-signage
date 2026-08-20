@@ -50,7 +50,7 @@ Install the Python dependencies once:
 
 ```powershell
 cd C:\Path\To\cap-digital-signage\scripts
-py -m pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
 ## How to run the sync
@@ -60,7 +60,7 @@ py -m pip install -r requirements.txt
 Use dry-run mode if you want to see what would happen without uploading or deleting anything:
 
 ```powershell
-py .\sync_xibo.py --dry-run --yes
+python .\sync_xibo.py --dry-run --yes
 ```
 
 ### Calendar preview
@@ -68,13 +68,13 @@ py .\sync_xibo.py --dry-run --yes
 Preview the newest calendar snapshot without changing Xibo:
 
 ```powershell
-py .\sync_xibo.py --upload-calendar --dry-run --yes
+python .\sync_xibo.py --upload-calendar --dry-run --yes
 ```
 
 Run the calendar replacement:
 
 ```powershell
-py .\sync_xibo.py --upload-calendar --yes
+python .\sync_xibo.py --upload-calendar --yes
 ```
 
 When `CALENDAR_JSON_PATH` points to a directory, the script selects the newest file named like
@@ -85,7 +85,7 @@ When `CALENDAR_JSON_PATH` points to a directory, the script selects the newest f
 If the machine is already on the correct network:
 
 ```powershell
-py .\sync_xibo.py --yes
+python .\sync_xibo.py --yes
 ```
 
 ## Command-line options
@@ -109,7 +109,7 @@ New uploads are tagged only after that verification passes, and they are tagged 
 Example:
 
 ```powershell
-py .\sync_xibo.py --dry-run --yes
+python .\sync_xibo.py --dry-run --yes
 ```
 
 ## What the settings mean

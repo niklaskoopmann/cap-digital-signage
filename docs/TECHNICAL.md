@@ -116,7 +116,7 @@ the calendar schema. Cancelled events are excluded by default.
 8. Delete remote-only items if the user requested deletion.
 9. Optionally trigger Collect Now.
 
-Use `py .\sync_xibo.py --upload-calendar --dry-run --yes` to inspect the selected snapshot and
+Use `python .\sync_xibo.py --upload-calendar --dry-run --yes` to inspect the selected snapshot and
 row count without changing Xibo. Calendar upload does not enter the media deletion workflow.
 
 ## Testing
@@ -130,9 +130,9 @@ Setup and run:
 
 ```powershell
 cd scripts
-py -m pip install -r requirements-dev.txt
-py -m pytest            # full suite
-py -m pytest -m "not integration"   # unit tests only
+python -m pip install -r requirements-dev.txt
+python -m pytest            # full suite
+python -m pytest -m "not integration"   # unit tests only
 ```
 
 **Convention: every new piece of custom logic needs tests.** Add a unit test for new
@@ -202,7 +202,7 @@ When changing behavior:
 2. Keep `Readme.md` focused on quick-start and user guidance.
 3. Add a dry-run verification step before any destructive run.
 4. Run `python -m py_compile scripts/*.py` or the equivalent syntax check.
-5. Add or update tests under `scripts/tests/` for any new or changed custom logic, then run `py -m pytest` from `scripts/` (see [Testing](#testing)).
+5. Add or update tests under `scripts/tests/` for any new or changed custom logic, then run `python -m pytest` from `scripts/` (see [Testing](#testing)).
 
 ## Docker / Xibo CMS Reference
 
