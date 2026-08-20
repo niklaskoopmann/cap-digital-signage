@@ -97,6 +97,38 @@ def config_wizard(env_path: Path) -> None:
         get("CALENDAR_UPLOAD_CANCELLED_EVENTS", "false"),
         help_text="Include cancelled events in the replacement snapshot.",
     )
+
+    env_data["CALENDAR_ENABLE_HTML"] = prompt_edit(
+        "CALENDAR_ENABLE_HTML",
+        get("CALENDAR_ENABLE_HTML", "false"),
+        help_text="Generate HTML calendar packages for Xibo widgets.",
+    )
+    env_data["CALENDAR_HTML_VIEWS"] = prompt_edit(
+        "CALENDAR_HTML_VIEWS",
+        get("CALENDAR_HTML_VIEWS", "today,this_week,next_2_weeks"),
+        help_text="Comma-separated views. Valid: today, this_week, next_2_weeks",
+    )
+    env_data["CALENDAR_LAYOUT_NAMES"] = prompt_edit(
+        "CALENDAR_LAYOUT_NAMES",
+        get("CALENDAR_LAYOUT_NAMES", "Calendar - Today,Calendar - This Week,Calendar - Next 2 Weeks"),
+        help_text="Comma-separated layout names (order must match CALENDAR_HTML_VIEWS).",
+    )
+    env_data["CALENDAR_AUTO_PUBLISH"] = prompt_edit(
+        "CALENDAR_AUTO_PUBLISH",
+        get("CALENDAR_AUTO_PUBLISH", "true"),
+        help_text="Auto-publish layouts after each package upload.",
+    )
+    env_data["CALENDAR_TIMEZONE"] = prompt_edit(
+        "CALENDAR_TIMEZONE",
+        get("CALENDAR_TIMEZONE", "UTC"),
+        help_text="IANA timezone name, e.g. Europe/Amsterdam",
+    )
+    env_data["CALENDAR_PACKAGE_RETENTION_DAYS"] = prompt_edit(
+        "CALENDAR_PACKAGE_RETENTION_DAYS",
+        get("CALENDAR_PACKAGE_RETENTION_DAYS", "30"),
+        help_text="Delete local calendar packages older than this many days.",
+        validator=lambda v: int(v),
+    )
     env_data["MEDIA_EXTENSIONS"] = prompt_edit(
         "MEDIA_EXTENSIONS",
         get("MEDIA_EXTENSIONS", ".jpg,.jpeg,.png,.gif,.mp4,.mov,.mkv,.webm"),

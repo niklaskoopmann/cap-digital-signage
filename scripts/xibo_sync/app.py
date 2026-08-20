@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import argparse
 import logging
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
 from rich.prompt import Confirm
 
 from .calendar_data import CALENDAR_COLUMNS, csv_bytes, load_events
+from .calendar_html import generate_calendar_packages
 from .client import XiboClient
 from .config import load_config
 from .env_io import read_env_file, write_env_file
@@ -98,6 +100,87 @@ def run_calendar_upload(cfg, scripts_dir: Path) -> int:
     return 0
 
 
+def run_calendar_html_upload(cfg, scripts_dir: Path) -> int:
+    """Generate calendar HTML packages and deploy them to Xibo layouts.
+
+    Args:
+        cfg: Populated :class:`~xibo_sync.config.Config` instance.
+        scripts_dir: The ``scripts/`` directory used to resolve relative paths
+            and as the base for the package output directory.
+
+    Returns:
+        ``0`` on success, ``2`` on failure.
+    """
+    calendar_path = cfg.calendar_json_path
+    if not calendar_path.is_absolute():
+        calendar_path = (scripts_dir / calendar_path).resolve()
+
+    _snapshot, events = load_events(calendar_path, cfg.calendar_upload_cancelled_events)
+    ui_info(f"Calendar snapshot loaded: {len(events)} event(s)")
+
+    output_dir = scripts_dir / "calendar_packages"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    packages = generate_calendar_packages(
+        events,
+        list(cfg.calendar_html_views),
+        output_dir,
+        cfg.calendar_timezone,
+    )
+
+    if not packages:
+        ui_warn("No calendar packages were generated. Check CALENDAR_HTML_VIEWS and the snapshot.")
+        return 0
+
+    xibo = XiboClient(cfg.cms_base_url, cfg.cms_verify_tls, cfg.cms_timeout)
+    if cfg.auth_mode == "oauth":
+        assert cfg.cms_client_id and cfg.cms_client_secret
+        xibo.authenticate_oauth(cfg.cms_client_id, cfg.cms_client_secret)
+    xibo.health_check()
+    ui_ok("Xibo API reachable")
+
+    layout_names = list(cfg.calendar_layout_names)
+
+    for package, layout_name in zip(packages, layout_names):
+        date_stem = package.package_path.stem.split("_")[-1]
+        tags = ["calendar-html", f"calendar-{package.view_type}", date_stem]
+
+        if cfg.dry_run:
+            ui_ok(
+                f"[DRY_RUN] Would deploy: {layout_name} ({package.event_count} event(s))"
+            )
+            continue
+
+        xibo.deploy_calendar_package_to_layout(
+            layout_name=layout_name,
+            package_path=package.package_path,
+            tags=tags,
+            publish=cfg.calendar_auto_publish,
+            assign_to_display_group_id=cfg.display_group_id,
+            immediate_show=cfg.immediate_show_on_change,
+            dry_run=cfg.dry_run,
+        )
+        ui_ok(f"Deployed: {layout_name} ({package.event_count} event(s))")
+
+    # Clean up local packages older than retention days
+    retention_seconds = cfg.calendar_package_retention_days * 86400
+    now_ts = time.time()
+    cleaned = 0
+    for htz_file in output_dir.glob("*.htz"):
+        try:
+            if now_ts - htz_file.stat().st_mtime > retention_seconds:
+                htz_file.unlink()
+                cleaned += 1
+                logging.info("Removed stale calendar package: %s", htz_file.name)
+        except Exception as e:
+            logging.warning("Failed to remove stale package %s: %s", htz_file.name, e)
+
+    if cleaned:
+        ui_info(f"Cleaned up {cleaned} stale calendar package(s) older than {cfg.calendar_package_retention_days} day(s)")
+
+    return 0
+
+
 def main() -> int:
     """Run the sync CLI, including config prompts, diffing, and actions.
 
@@ -113,6 +196,7 @@ def main() -> int:
     parser.add_argument("--yes", "-y", action="store_true", help="Non-interactive: accept defaults and skip prompts")
     parser.add_argument("--dry-run", action="store_true", help="Preview actions without uploading/deleting")
     parser.add_argument("--upload-calendar", action="store_true", help="Replace the calendar DataSet from the latest snapshot")
+    parser.add_argument("--upload-calendar-html", action="store_true", help="Generate HTML calendar packages and deploy to Xibo layouts")
     parser.add_argument("--delete", dest="delete", action="store_true", help="Delete remote-only media without prompt")
     parser.add_argument("--no-delete", dest="delete", action="store_false", help="Do not delete remote-only media")
     parser.set_defaults(delete=None)
@@ -155,6 +239,16 @@ def main() -> int:
         except Exception as e:
             logging.exception("Calendar upload failed: %s", e)
             ui_error(f"Calendar upload failed: {e}")
+            return 2
+
+    if args.upload_calendar_html:
+        if args.dry_run:
+            cfg.dry_run = True
+        try:
+            return run_calendar_html_upload(cfg, scripts_dir)
+        except Exception as e:
+            logging.exception("Calendar HTML upload failed: %s", e)
+            ui_error(f"Calendar HTML upload failed: {e}")
             return 2
 
     console.print()

@@ -812,6 +812,320 @@ class XiboClient:
         if not r.ok:
             raise RuntimeError(f"Assign layouts to displayGroupId={display_group_id} failed ({r.status_code}): {r.text}")
 
+    def upload_html_package(
+        self,
+        file_path: Path,
+        tags: List[str],
+        dry_run: bool,
+    ) -> Optional[dict]:
+        """Upload an ``.htz`` HTML package file to the Xibo library.
+
+        Delegates to :meth:`upload_media` which handles field-name fallback,
+        progress display, verification, and tagging.
+
+        Args:
+            file_path: Local ``.htz`` file to upload.
+            tags: Tags to attach to the uploaded media item.
+            dry_run: Whether to skip the actual upload.
+
+        Returns:
+            The verified media dictionary when the upload succeeds, otherwise
+            ``None`` in dry-run mode.
+
+        Raises:
+            RuntimeError: Raised when the upload or verification fails.
+        """
+        logging.info("Uploading HTML package: %s", file_path.name)
+        return self.upload_media(
+            file_path=file_path,
+            name=file_path.name,
+            folder_id=None,
+            tags=tags,
+            preferred_field="files",
+            dry_run=dry_run,
+        )
+
+    def get_or_create_calendar_layout(
+        self,
+        layout_name: str,
+        resolution_id: Optional[int],
+        dry_run: bool,
+    ) -> Optional[dict]:
+        """Return an existing layout by exact name or create a new 1080p layout.
+
+        Args:
+            layout_name: Exact display name for the layout.
+            resolution_id: Optional explicit resolution ID. When ``None``, the
+                best 1920×1080 resolution is selected automatically.
+            dry_run: Whether to skip creation when the layout does not exist.
+
+        Returns:
+            The layout dictionary when found or created, otherwise ``None`` in
+            dry-run mode.
+
+        Raises:
+            RuntimeError: Raised when the layout search or creation fails.
+        """
+        existing = self.get_layout_by_name(layout_name)
+        if existing is not None:
+            existing_id = existing.get("layoutId") or existing.get("id") or ""
+            logging.info("Found existing layout '%s' (id=%s)", layout_name, existing_id)
+            return existing
+
+        logging.info("Layout '%s' not found; creating ...", layout_name)
+        if dry_run:
+            logging.info("[DRY_RUN] Would create layout '%s'", layout_name)
+            return None
+
+        chosen_resolution_id = self._select_resolution_id(resolution_id, 1920, 1080)
+        if chosen_resolution_id is None:
+            raise RuntimeError(
+                "Unable to determine a layout resolution for calendar layout. "
+                "Configure at least one enabled resolution in Xibo."
+            )
+
+        payload = {"name": layout_name, "resolutionId": chosen_resolution_id}
+        r = self._request("POST", self._api_url("/layout"), data=payload)
+        if not r.ok:
+            raise RuntimeError(f"Create calendar layout '{layout_name}' failed ({r.status_code}): {r.text}")
+
+        data = self._extract_data(r.json())
+        if isinstance(data, list):
+            data = data[0] if data else None
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Create calendar layout returned unexpected payload: {r.text}")
+
+        logging.info(
+            "Created layout '%s' (layoutId=%s)",
+            layout_name,
+            data.get("layoutId") or data.get("id"),
+        )
+        return data
+
+    def assign_html_package_to_layout(
+        self,
+        layout_id: str,
+        media_id: str,
+        dry_run: bool,
+    ) -> None:
+        """Assign an uploaded HTML package to the first region of a layout.
+
+        Uses ``GET /layout/{layoutId}`` to discover the first region's playlist,
+        then ``POST /playlist/library/assign/{playlistId}`` to attach the media.
+
+        # NOTE: requires verification — the playlist/library/assign endpoint
+        # and the region/playlist discovery path have not been smoke-tested
+        # against a live Xibo 4.x CMS in this repository. Verify against your
+        # target CMS version before relying on this in production.
+
+        Args:
+            layout_id: ID of the target layout.
+            media_id: ID of the uploaded HTML package media item.
+            dry_run: Whether to skip the actual assignment.
+
+        Raises:
+            RuntimeError: Raised when the layout has no regions, or when
+                either API call fails.
+        """
+        logging.info(
+            "Assigning HTML package mediaId=%s to layoutId=%s ...", media_id, layout_id
+        )
+        if dry_run:
+            logging.info(
+                "[DRY_RUN] Would assign mediaId=%s to layoutId=%s", media_id, layout_id
+            )
+            return
+
+        r = self._request("GET", self._api_url(f"/layout/{layout_id}"), params={"embed": "regions,playlists"})
+        if not r.ok:
+            raise RuntimeError(
+                f"Fetch layout layoutId={layout_id} failed ({r.status_code}): {r.text}"
+            )
+
+        layout_data = self._extract_data(r.json())
+        if isinstance(layout_data, list):
+            layout_data = layout_data[0] if layout_data else {}
+        if not isinstance(layout_data, dict):
+            raise RuntimeError(f"Unexpected layout fetch response: {r.text}")
+
+        regions = layout_data.get("regions") or []
+        if not regions:
+            raise RuntimeError(
+                f"Layout layoutId={layout_id} has no regions. "
+                "Add a region in the Xibo CMS before assigning an HTML package."
+            )
+
+        first_region = regions[0] if isinstance(regions, list) else next(iter(regions.values()))
+        playlist_id = None
+        if isinstance(first_region, dict):
+            region_playlist = first_region.get("regionPlaylist") or {}
+            if isinstance(region_playlist, dict):
+                playlist_id = str(
+                    region_playlist.get("playlistId") or region_playlist.get("id") or ""
+                )
+
+        if not playlist_id:
+            raise RuntimeError(
+                f"Could not determine playlistId for first region of layoutId={layout_id}."
+            )
+
+        data = [("media[]", str(media_id))]
+        r = self._request(
+            "POST",
+            self._api_url(f"/playlist/library/assign/{playlist_id}"),
+            data=data,
+        )
+        if not r.ok:
+            raise RuntimeError(
+                f"Assign media to playlistId={playlist_id} failed ({r.status_code}): {r.text}"
+            )
+
+        logging.info(
+            "Assigned mediaId=%s to playlistId=%s (layoutId=%s)",
+            media_id,
+            playlist_id,
+            layout_id,
+        )
+
+    def deploy_calendar_package_to_layout(
+        self,
+        layout_name: str,
+        package_path: Path,
+        tags: List[str],
+        publish: bool,
+        assign_to_display_group_id: Optional[str],
+        immediate_show: bool,
+        dry_run: bool,
+    ) -> Optional[str]:
+        """Orchestrate the full calendar package deploy pipeline.
+
+        Steps:
+
+        1. Upload the ``.htz`` package to the Xibo library.
+        2. Find or create the named layout.
+        3. Check the layout out for editing when needed.
+        4. Assign the uploaded package to the layout's first region playlist.
+        5. Publish the layout (when *publish* is ``True``).
+        6. Re-resolve the layout ID by name after publish (Xibo may renumber it).
+        7. Tag the layout with *tags*.
+        8. Assign the layout to the display group (when *assign_to_display_group_id* is set).
+        9. Change the active layout on the display group (when *immediate_show* is ``True``).
+
+        Args:
+            layout_name: Display name of the target layout.
+            package_path: Local ``.htz`` file to upload.
+            tags: Tags to attach to both the media item and the layout.
+            publish: Whether to publish the layout after package assignment.
+            assign_to_display_group_id: Optional display group ID to assign
+                the layout to after publishing.
+            immediate_show: Whether to send a change-layout action so online
+                players switch immediately.
+            dry_run: Whether to skip all mutating operations.
+
+        Returns:
+            The deployed layout ID as a string, or ``None`` in dry-run mode.
+
+        Raises:
+            RuntimeError: Raised when any step of the pipeline fails.
+        """
+        # Step 1: Upload package
+        media = self.upload_html_package(package_path, tags, dry_run)
+        media_id: Optional[str] = None
+        if media is not None:
+            media_id = str(
+                media.get("mediaId") or media.get("id") or ""
+            )
+            if not media_id:
+                raise RuntimeError(f"Upload of '{package_path.name}' did not return a mediaId.")
+
+        # Step 2: Find or create layout
+        layout = self.get_or_create_calendar_layout(layout_name, None, dry_run)
+        layout_id: Optional[str] = None
+        if layout is not None:
+            layout_id = str(layout.get("layoutId") or layout.get("id") or "")
+            if not layout_id:
+                raise RuntimeError(f"Layout '{layout_name}' did not return a layoutId.")
+
+        if dry_run:
+            logging.info("[DRY_RUN] Would deploy package to layout '%s'", layout_name)
+            return None
+
+        assert layout_id is not None
+        assert media_id is not None
+
+        # Step 3: Check out the layout for editing (best-effort; 422 = already editable)
+        checkout_r = self._request("PUT", self._api_url(f"/layout/checkout/{layout_id}"))
+        if checkout_r.ok:
+            checkout_data = self._extract_data(checkout_r.json())
+            if isinstance(checkout_data, list):
+                checkout_data = checkout_data[0] if checkout_data else None
+            if isinstance(checkout_data, dict):
+                new_id = str(checkout_data.get("layoutId") or checkout_data.get("id") or "")
+                if new_id and new_id != layout_id:
+                    logging.info("Checkout returned new draft layoutId=%s (was %s)", new_id, layout_id)
+                    layout_id = new_id
+        else:
+            already_editable = False
+            if checkout_r.status_code == 422:
+                try:
+                    msg = checkout_r.json().get("message", "").lower()
+                    already_editable = "already checked out" in msg or "already published" in msg
+                except Exception:
+                    pass
+            if not already_editable:
+                logging.warning(
+                    "Checkout layoutId=%s returned %s; proceeding anyway: %s",
+                    layout_id, checkout_r.status_code, checkout_r.text,
+                )
+
+        # Step 4: Assign package to layout's first region playlist
+        self.assign_html_package_to_layout(layout_id, media_id, dry_run=False)
+
+        # Step 5: Publish
+        if publish:
+            try:
+                self.publish_layout(layout_id, dry_run=False)
+            except Exception as e:
+                logging.warning("Publish failed for layoutId=%s: %s", layout_id, e)
+                found = self.get_layout_by_name(layout_name)
+                if isinstance(found, dict):
+                    found_id = str(found.get("layoutId") or found.get("id") or "")
+                    if found_id and found_id != layout_id:
+                        logging.info("Retrying publish with layoutId=%s (found by name)", found_id)
+                        self.publish_layout(found_id, dry_run=False)
+                        layout_id = found_id
+
+            # Step 6: Re-resolve layout ID after publish
+            current = self.get_layout_by_name(layout_name)
+            if isinstance(current, dict):
+                current_id = str(current.get("layoutId") or current.get("id") or "")
+                if current_id and current_id != layout_id:
+                    logging.info("Layout id changed after publish: %s -> %s", layout_id, current_id)
+                    layout_id = current_id
+
+        # Step 7: Tag the layout
+        try:
+            self.tag_layout(layout_id, tags, dry_run=False)
+        except Exception as e:
+            logging.warning("Failed to tag layoutId=%s: %s", layout_id, e)
+
+        # Step 8: Assign to display group
+        if assign_to_display_group_id:
+            self.assign_layouts_to_displaygroup(
+                assign_to_display_group_id, [layout_id], dry_run=False
+            )
+
+        # Step 9: Immediate show
+        if immediate_show and assign_to_display_group_id:
+            self.change_layout_on_displaygroup(
+                assign_to_display_group_id,
+                layout_id,
+                download_required=1,
+                dry_run=False,
+            )
+
+        return layout_id
+
     def change_layout_on_displaygroup(
         self,
         display_group_id: str,
