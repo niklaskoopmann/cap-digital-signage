@@ -126,11 +126,11 @@ def _normalize_event(event: dict[str, Any], default_timezone: tzinfo) -> Calenda
         return None
 
     subject = _text(event.get("subject")).strip() or "(No subject)"
-    location = _text(_nested(event, "locations", "displayName")).strip()
-    organizer = _text(_nested(event, "organizer", "emailAddress", "name")).strip()
-    all_day = bool(event.get("isAllDay")) or (
+    location = _text(event.get("location")).strip()
+    organizer = _text(event.get("organizer")).strip()
+    all_day = bool((_text(event.get("isAllDay")).strip().lower() == "true") or (
         start.time() == datetime.min.time() and end.time() == datetime.min.time() and (end - start) >= timedelta(days=1)
-    )
+    ))
 
     return CalendarEvent(
         subject=subject,

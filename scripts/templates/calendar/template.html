@@ -145,7 +145,7 @@
         <article class="event-card">
           <div class="event-time">{{ event.time }}</div>
           <div class="event-subject">{{ event.subject }}</div>
-          <div class="event-meta">{% if event.location %}<span class="meta-item">{{ event.location }}</span>{% endif %}{% if event.organizer %}<span class="meta-item">{{ event.organizer }}</span>{% endif %}</div>
+          <div class="event-meta">{% if event.location %}<span class="meta-item">🎯 {{ event.location }}</span>{% endif %}{% if event.organizer %}<span class="meta-item">👤 {{ event.organizer }}</span>{% endif %}</div>
         </article>
         {% endfor %}
       {% else %}

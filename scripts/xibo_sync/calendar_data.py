@@ -100,14 +100,14 @@ def flatten_event(event: dict[str, Any]) -> dict[str, str]:
         "endDateTime": _text(_nested(event, "end", "dateTime")),
         "endTimeZone": _text(_nested(event, "end", "timeZone")),
         "isAllDay": _text(event.get("isAllDay")),
-        "c11": _text(event.get("isCancelled")),
-        "c12": _text(event.get("showAs")),
-        "c13": _text(event.get("type")),
-        "c14": _text(_nested(event, "location", "displayName")),
-        "c15": _text(organizer_name),
-        "c16": _text(organizer_email),
-        "c17": _text(event.get("webLink")),
-        "c18": _text(event.get("lastModifiedDateTime")),
+        "isCancelled": _text(event.get("isCancelled")),
+        "showAs": _text(event.get("showAs")),
+        "type": _text(event.get("type")),
+        "location": _text(_nested(event, "location", "displayName")),
+        "organizer": _text(organizer_name),
+        "organizerEmail": _text(organizer_email),
+        "webLink": _text(event.get("webLink")),
+        "lastModifiedDateTime": _text(event.get("lastModifiedDateTime")),
     }
 
 
