@@ -118,12 +118,32 @@ def run_calendar_html_upload(cfg, scripts_dir: Path) -> int:
     _snapshot, events = load_events(calendar_path, cfg.calendar_upload_cancelled_events)
     ui_info(f"Calendar snapshot loaded: {len(events)} event(s)")
 
+    # Resolve template directory
+    template_dir = cfg.calendar_template_dir
+    if not template_dir.is_absolute():
+        template_dir = (scripts_dir / template_dir).resolve()
+
+    # Validate that all requested views have corresponding config files
+    views_dir = template_dir / "views"
+    missing_views = []
+    for view_type in cfg.calendar_html_views:
+        view_config_path = views_dir / f"{view_type}.json"
+        if not view_config_path.exists():
+            missing_views.append((view_type, view_config_path))
+
+    if missing_views:
+        ui_error(f"Calendar view config file(s) not found:")
+        for view_type, path in missing_views:
+            ui_error(f"  - {view_type}: {path}")
+        return 2
+
     output_dir = scripts_dir / "calendar_packages"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     packages = generate_calendar_packages(
         events,
         list(cfg.calendar_html_views),
+        template_dir,
         output_dir,
         cfg.calendar_timezone,
     )
@@ -139,20 +159,18 @@ def run_calendar_html_upload(cfg, scripts_dir: Path) -> int:
     xibo.health_check()
     ui_ok("Xibo API reachable")
 
-    layout_names = list(cfg.calendar_layout_names)
-
-    for package, layout_name in zip(packages, layout_names):
+    for package in packages:
         date_stem = package.package_path.stem.split("_")[-1]
         tags = ["calendar-html", f"calendar-{package.view_type}", date_stem]
 
         if cfg.dry_run:
             ui_ok(
-                f"[DRY_RUN] Would deploy: {layout_name} ({package.event_count} event(s))"
+                f"[DRY_RUN] Would deploy: {package.layout_name} ({package.event_count} event(s))"
             )
             continue
 
         xibo.deploy_calendar_package_to_layout(
-            layout_name=layout_name,
+            layout_name=package.layout_name,
             package_path=package.package_path,
             tags=tags,
             publish=cfg.calendar_auto_publish,
@@ -160,7 +178,7 @@ def run_calendar_html_upload(cfg, scripts_dir: Path) -> int:
             immediate_show=cfg.immediate_show_on_change,
             dry_run=cfg.dry_run,
         )
-        ui_ok(f"Deployed: {layout_name} ({package.event_count} event(s))")
+        ui_ok(f"Deployed: {package.layout_name} ({package.event_count} event(s))")
 
     # Clean up local packages older than retention days
     retention_seconds = cfg.calendar_package_retention_days * 86400

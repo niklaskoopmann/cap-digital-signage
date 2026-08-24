@@ -12,7 +12,7 @@ from xibo_sync.wizard import config_wizard
 def test_wizard_writes_calendar_html_keys(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The wizard must persist all six new calendar HTML keys to the .env file."""
+    """The wizard must persist all calendar HTML keys to the .env file."""
     env_path = tmp_path / ".env"
 
     # Patch prompt_edit and prompt_password so the wizard runs non-interactively.
@@ -33,7 +33,9 @@ def test_wizard_writes_calendar_html_keys(
     content = env_path.read_text(encoding="utf-8")
     assert "CALENDAR_ENABLE_HTML" in content
     assert "CALENDAR_HTML_VIEWS" in content
-    assert "CALENDAR_LAYOUT_NAMES" in content
+    assert "CALENDAR_TEMPLATE_DIR" in content
+    # CALENDAR_LAYOUT_NAMES should not be present (removed in refactoring)
+    assert "CALENDAR_LAYOUT_NAMES" not in content
     assert "CALENDAR_AUTO_PUBLISH" in content
     assert "CALENDAR_TIMEZONE" in content
     assert "CALENDAR_PACKAGE_RETENTION_DAYS" in content

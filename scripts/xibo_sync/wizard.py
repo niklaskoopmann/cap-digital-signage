@@ -106,12 +106,12 @@ def config_wizard(env_path: Path) -> None:
     env_data["CALENDAR_HTML_VIEWS"] = prompt_edit(
         "CALENDAR_HTML_VIEWS",
         get("CALENDAR_HTML_VIEWS", "today,this_week,next_2_weeks"),
-        help_text="Comma-separated views. Valid: today, this_week, next_2_weeks",
+        help_text="Comma-separated view names (must have matching views/*.json in template dir).",
     )
-    env_data["CALENDAR_LAYOUT_NAMES"] = prompt_edit(
-        "CALENDAR_LAYOUT_NAMES",
-        get("CALENDAR_LAYOUT_NAMES", "Calendar - Today,Calendar - This Week,Calendar - Next 2 Weeks"),
-        help_text="Comma-separated layout names (order must match CALENDAR_HTML_VIEWS).",
+    env_data["CALENDAR_TEMPLATE_DIR"] = prompt_edit(
+        "CALENDAR_TEMPLATE_DIR",
+        get("CALENDAR_TEMPLATE_DIR", "templates/calendar"),
+        help_text="Template directory containing template.html and views/*.json.",
     )
     env_data["CALENDAR_AUTO_PUBLISH"] = prompt_edit(
         "CALENDAR_AUTO_PUBLISH",

@@ -1,0 +1,15 @@
+
+======================================================================
+Checking today...
+======================================================================
+Traceback (most recent call last):
+  File "C:\Code\cap-digital-signage\scripts\_parity_check_calendar.py", line 156, in <module>
+    sys.exit(parity_check())
+             ~~~~~~~~~~~~^^
+  File "C:\Code\cap-digital-signage\scripts\_parity_check_calendar.py", line 115, in parity_check
+    print(f"  \u2705 PASS - outputs match (normalized)")
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\rogrun\.pyenv\pyenv-win\versions\3.14.2\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2705' in position 2: character maps to <undefined>

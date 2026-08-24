@@ -2,28 +2,15 @@
 
 from __future__ import annotations
 
-import html
 import logging
 import re
-import zipfile
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone, tzinfo
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 from zoneinfo import ZoneInfo
 
-VIEW_TITLES = {
-    "today": "Today",
-    "this_week": "This Week",
-    "next_2_weeks": "Next 2 Weeks",
-}
-
-VIEW_WINDOWS_DAYS = {
-    "today": 1,
-    "this_week": 7,
-    "next_2_weeks": 14,
-}
-
+from . import html_packaging
 
 @dataclass(frozen=True)
 class CalendarEvent:
@@ -47,6 +34,7 @@ class CalendarPackage:
     date_range: str
     event_count: int
     package_path: Path
+    layout_name: str
 
 
 _FRACTION_RE = re.compile(r"\.(\d{6})\d+")
@@ -62,19 +50,6 @@ def _coerce_timezone(value: str | tzinfo | None) -> tzinfo:
 
 def _format_date(value: date) -> str:
     return f"{value:%b} {value.day}, {value:%Y}"
-
-
-def _view_spec(view_type: str) -> tuple[str, int]:
-    try:
-        return VIEW_TITLES[view_type], VIEW_WINDOWS_DAYS[view_type]
-    except KeyError as exc:
-        raise ValueError(f"Unknown calendar view: {view_type}") from exc
-
-
-def _view_window(view_type: str, base_time: datetime) -> tuple[datetime, datetime]:
-    _, days = _view_spec(view_type)
-    window_start = base_time.replace(hour=0, minute=0, second=0, microsecond=0)
-    return window_start, window_start + timedelta(days=days)
 
 
 def _strip_fraction(value: str) -> str:
@@ -151,7 +126,7 @@ def _normalize_event(event: dict[str, Any], default_timezone: tzinfo) -> Calenda
         return None
 
     subject = _text(event.get("subject")).strip() or "(No subject)"
-    location = _text(_nested(event, "location", "displayName")).strip()
+    location = _text(_nested(event, "locations", "displayName")).strip()
     organizer = _text(_nested(event, "organizer", "emailAddress", "name")).strip()
     all_day = bool(event.get("isAllDay")) or (
         start.time() == datetime.min.time() and end.time() == datetime.min.time() and (end - start) >= timedelta(days=1)
@@ -195,12 +170,19 @@ def _format_range(window_start: datetime, window_end: datetime) -> str:
 
 def filter_events_by_view(
     events: Iterable[dict[str, Any]],
-    view_type: str,
+    window_days: int,
     timezone: str | tzinfo | None = "UTC",
     *,
     now: datetime | None = None,
 ) -> list[CalendarEvent]:
-    """Return events that belong in the requested calendar view."""
+    """Return events that belong in the requested calendar view.
+    
+    Args:
+        events: Raw calendar event dicts from Microsoft Graph.
+        window_days: Number of days in the view window (e.g., 1 for today, 7 for this week).
+        timezone: Timezone for calculations.
+        now: Reference timestamp (defaults to current time).
+    """
 
     reference_timezone = _coerce_timezone(timezone)
     reference_now = now or datetime.now(reference_timezone)
@@ -209,7 +191,9 @@ def filter_events_by_view(
     else:
         reference_now = reference_now.astimezone(reference_timezone)
 
-    window_start, window_end = _view_window(view_type, reference_now)
+    # Compute window from window_days instead of looking up in VIEW_WINDOWS_DAYS
+    window_start = reference_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    window_end = window_start + timedelta(days=window_days)
     filtered: list[CalendarEvent] = []
 
     for raw_event in events:
@@ -251,16 +235,26 @@ def filter_events_by_view(
     return filtered
 
 
-def render_calendar_html(
+def build_calendar_template_context(
     events: Sequence[CalendarEvent],
-    view_type: str,
+    title: str,
+    window_days: int,
     timezone: str | tzinfo | None = "UTC",
     *,
     generated_at: datetime | None = None,
-) -> str:
-    """Render a complete HTML document for a calendar view."""
-
-    title, days = _view_spec(view_type)
+) -> dict[str, Any]:
+    """Build the Jinja2 context dict for a calendar view template.
+    
+    Args:
+        events: Filtered calendar events for the view.
+        title: View title (from config, e.g., 'Today', 'This Week').
+        window_days: Number of days in the view window (from config).
+        timezone: Timezone for formatting.
+        generated_at: Timestamp to use (defaults to current time).
+    
+    Returns:
+        Dict suitable for passing to html_packaging.render_template().
+    """
     reference_timezone = _coerce_timezone(timezone)
     generated_at = generated_at or datetime.now(reference_timezone)
     if generated_at.tzinfo is None:
@@ -269,211 +263,52 @@ def render_calendar_html(
         generated_at = generated_at.astimezone(reference_timezone)
 
     window_start = generated_at.replace(hour=0, minute=0, second=0, microsecond=0)
-    window_end = window_start + timedelta(days=days)
+    window_end = window_start + timedelta(days=window_days)
     date_range = _format_range(window_start, window_end)
 
-    rendered_items: list[str] = []
+    event_view_models: list[dict[str, str]] = []
     for event in events:
         start_label = _format_event_time(event, reference_timezone)
-        details: list[str] = []
-        if event.location:
-            details.append(f"<span class=\"meta-item\">{html.escape(event.location)}</span>")
-        if event.organizer:
-            details.append(f"<span class=\"meta-item\">{html.escape(event.organizer)}</span>")
-
-        rendered_items.append(
-            "\n".join(
-                [
-                    "<article class=\"event-card\">",
-                    f"  <div class=\"event-time\">{html.escape(start_label)}</div>",
-                    f"  <div class=\"event-subject\">{html.escape(event.subject)}</div>",
-                    f"  <div class=\"event-meta\">{''.join(details)}</div>",
-                    "</article>",
-                ]
-            )
+        event_view_models.append(
+            {
+                "subject": event.subject,
+                "time": start_label,
+                "location": event.location,
+                "organizer": event.organizer,
+            }
         )
 
-    body_content = (
-        "\n".join(rendered_items)
-        if rendered_items
-        else "<div class=\"empty-state\">No events scheduled</div>"
-    )
-
-    return f"""<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Calendar - {html.escape(title)}</title>
-  <style>
-    :root {{
-      --bg: #f7f9fc;
-      --surface: #ffffff;
-      --surface-alt: #eef3f8;
-      --text: #132238;
-      --muted: #5d6b7f;
-      --accent: #2b6cb0;
-      --border: rgba(19, 34, 56, 0.12);
-      --shadow: 0 16px 40px rgba(19, 34, 56, 0.08);
-    }}
-    @media (prefers-color-scheme: dark) {{
-      :root {{
-        --bg: #08111f;
-        --surface: #102033;
-        --surface-alt: #16273e;
-        --text: #edf3fb;
-        --muted: #9fb0c4;
-        --accent: #84b6ff;
-        --border: rgba(255, 255, 255, 0.12);
-        --shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
-      }}
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{
-      margin: 0;
-      min-height: 100vh;
-      font-family: "Segoe UI", Arial, sans-serif;
-      background: linear-gradient(180deg, var(--bg), var(--surface-alt));
-      color: var(--text);
-    }}
-    .page {{
-      min-height: 100vh;
-      padding: 40px;
-      display: flex;
-      flex-direction: column;
-      gap: 24px;
-    }}
-    .header, .footer {{
-      background: color-mix(in srgb, var(--surface) 88%, transparent);
-      border: 1px solid var(--border);
-      border-radius: 24px;
-      box-shadow: var(--shadow);
-      padding: 28px 32px;
-    }}
-    .header h1 {{
-      margin: 0 0 8px;
-      font-size: clamp(2rem, 4vw, 3.25rem);
-      letter-spacing: -0.03em;
-    }}
-    .header .subtitle {{
-      margin: 0;
-      color: var(--muted);
-      font-size: clamp(1rem, 1.6vw, 1.25rem);
-    }}
-    .stats {{
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      margin-top: 18px;
-    }}
-    .pill {{
-      display: inline-flex;
-      align-items: center;
-      border-radius: 999px;
-      padding: 8px 14px;
-      background: var(--surface-alt);
-      color: var(--accent);
-      font-weight: 600;
-    }}
-    .list {{
-      display: grid;
-      gap: 16px;
-    }}
-    .event-card {{
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 22px 24px;
-      box-shadow: var(--shadow);
-      display: grid;
-      gap: 10px;
-    }}
-    .event-time {{
-      color: var(--accent);
-      font-size: 1.05rem;
-      font-weight: 700;
-    }}
-    .event-subject {{
-      font-size: clamp(1.4rem, 2vw, 2rem);
-      font-weight: 700;
-      line-height: 1.15;
-    }}
-    .event-meta {{
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      color: var(--muted);
-    }}
-    .meta-item {{
-      display: inline-flex;
-      align-items: center;
-      padding: 7px 12px;
-      border-radius: 999px;
-      background: var(--surface-alt);
-    }}
-    .empty-state {{
-      border: 2px dashed var(--border);
-      border-radius: 20px;
-      padding: 42px 24px;
-      text-align: center;
-      color: var(--muted);
-      font-size: clamp(1.2rem, 2vw, 1.8rem);
-      background: var(--surface);
-    }}
-    .footer {{
-      color: var(--muted);
-      font-size: 0.95rem;
-    }}
-    @media (max-width: 900px) {{
-      .page {{ padding: 20px; }}
-      .header, .footer {{ padding: 22px; border-radius: 18px; }}
-      .event-card {{ padding: 18px 20px; border-radius: 16px; }}
-    }}
-  </style>
-</head>
-<body>
-  <main class="page">
-    <section class="header">
-      <h1>Calendar - {html.escape(title)}</h1>
-      <p class="subtitle">{html.escape(date_range)}</p>
-      <div class="stats">
-        <span class="pill">{len(events)} event(s)</span>
-      </div>
-    </section>
-    <section class="list">
-      {body_content}
-    </section>
-    <section class="footer">
-      Last updated: {html.escape(generated_at.strftime("%Y-%m-%d %H:%M %Z"))}
-    </section>
-  </main>
-</body>
-</html>
-"""
-
-
-def package_html_to_zip(html_content: str, output_path: Path, package_name: str) -> Path:
-    """Write a ZIP-based HTZ package containing the supplied HTML."""
-
-    output_path.mkdir(parents=True, exist_ok=True)
-    file_name = package_name if package_name.lower().endswith(".htz") else f"{package_name}.htz"
-    package_path = output_path / file_name
-
-    with zipfile.ZipFile(package_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("index.html", html_content)
-
-    return package_path
+    return {
+        "title": title,
+        "date_range": date_range,
+        "event_count": len(events),
+        "events": event_view_models,
+        "generated_at_label": f"Last updated: {generated_at.strftime('%Y-%m-%d %H:%M %Z')}",
+    }
 
 
 def generate_calendar_packages(
     events: Iterable[dict[str, Any]],
     view_types: Sequence[str],
+    template_dir: Path,
     output_path: Path,
     timezone: str | tzinfo | None = "UTC",
     *,
     now: datetime | None = None,
 ) -> list[CalendarPackage]:
-    """Generate one package per requested view and write them to disk."""
+    """Generate one package per requested view and write them to disk.
+    
+    Args:
+        events: Raw calendar event dicts from Microsoft Graph.
+        view_types: List of view names to generate (e.g., 'today', 'this_week').
+        template_dir: Template directory containing template.html and views/*.json configs.
+        output_path: Directory in which to write the .htz packages.
+        timezone: Timezone for event filtering and formatting.
+        now: Reference timestamp (defaults to current time).
+    
+    Returns:
+        List of CalendarPackage metadata for the generated packages.
+    """
 
     reference_timezone = _coerce_timezone(timezone)
     reference_now = now or datetime.now(reference_timezone)
@@ -484,24 +319,44 @@ def generate_calendar_packages(
 
     event_list = list(events)
     packages: list[CalendarPackage] = []
+    views_dir = template_dir / "views"
 
     for view_type in view_types:
+        # Load view configuration
+        view_config = html_packaging.load_view_config(views_dir, view_type)
+        title = view_config.get("title", view_type)
+        window_days = view_config.get("window_days", 1)
+        layout_name = view_config.get("layout_name", f"Calendar {title}")
+        template_file = view_config.get("template_file", "template.html")
+
+        # Filter events for this view
         filtered_events = filter_events_by_view(
             event_list,
-            view_type,
+            window_days,
             reference_timezone,
             now=reference_now,
         )
-        html_content = render_calendar_html(
+
+        # Build template context
+        context = build_calendar_template_context(
             filtered_events,
-            view_type,
+            title,
+            window_days,
             reference_timezone,
             generated_at=reference_now,
         )
+
+        # Render template
+        html_content = html_packaging.render_template(template_dir, template_file, context)
+
+        # Package to HTZ
         package_name = f"calendar_{view_type}_{reference_now.date():%Y-%m-%d}"
-        package_path = package_html_to_zip(html_content, output_path, package_name)
-        title, _ = _view_spec(view_type)
-        window_start, window_end = _view_window(view_type, reference_now)
+        package_path = html_packaging.package_html_to_zip(html_content, output_path, package_name)
+
+        # Compute date range for metadata
+        window_start = reference_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        window_end = window_start + timedelta(days=window_days)
+
         packages.append(
             CalendarPackage(
                 view_type=view_type,
@@ -509,6 +364,7 @@ def generate_calendar_packages(
                 date_range=_format_range(window_start, window_end),
                 event_count=len(filtered_events),
                 package_path=package_path,
+                layout_name=layout_name,
             )
         )
 

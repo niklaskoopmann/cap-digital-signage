@@ -23,7 +23,7 @@ def _clear_optional_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "CALENDAR_UPLOAD_CANCELLED_EVENTS",
         "CALENDAR_ENABLE_HTML",
         "CALENDAR_HTML_VIEWS",
-        "CALENDAR_LAYOUT_NAMES",
+        "CALENDAR_TEMPLATE_DIR",
         "CALENDAR_AUTO_PUBLISH",
         "CALENDAR_TIMEZONE",
         "CALENDAR_PACKAGE_RETENTION_DAYS",
@@ -131,29 +131,27 @@ def test_load_config_calendar_html_defaults(monkeypatch: pytest.MonkeyPatch) -> 
 
     assert cfg.calendar_enable_html is False
     assert cfg.calendar_html_views == ("today", "this_week", "next_2_weeks")
-    assert cfg.calendar_layout_names == (
-        "Calendar - Today",
-        "Calendar - This Week",
-        "Calendar - Next 2 Weeks",
-    )
+    assert cfg.calendar_template_dir.name == "calendar"  # Default is "templates/calendar"
     assert cfg.calendar_auto_publish is True
     assert cfg.calendar_timezone == "UTC"
     assert cfg.calendar_package_retention_days == 30
 
 
-def test_load_config_calendar_html_views_length_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_load_config_calendar_template_dir_override(monkeypatch: pytest.MonkeyPatch) -> None:
     _set_required_env(monkeypatch)
-    monkeypatch.setenv("CALENDAR_HTML_VIEWS", "today,this_week")
-    monkeypatch.setenv("CALENDAR_LAYOUT_NAMES", "Calendar - Today")
+    monkeypatch.setenv("CALENDAR_TEMPLATE_DIR", "custom/templates")
 
-    with pytest.raises(ValueError, match="same length"):
-        load_config()
+    cfg = load_config()
+
+    # Check that custom/templates is in the path (handles both / and \)
+    assert "custom" in str(cfg.calendar_template_dir) and "templates" in str(cfg.calendar_template_dir)
 
 
-def test_load_config_calendar_html_invalid_view(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_load_config_calendar_html_views_empty_string(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Empty CALENDAR_HTML_VIEWS should result in empty tuple (allowed)."""
     _set_required_env(monkeypatch)
-    monkeypatch.setenv("CALENDAR_HTML_VIEWS", "today,monthly")
-    monkeypatch.setenv("CALENDAR_LAYOUT_NAMES", "Calendar - Today,Calendar - Monthly")
+    monkeypatch.setenv("CALENDAR_HTML_VIEWS", "")
 
-    with pytest.raises(ValueError, match="monthly"):
-        load_config()
+    cfg = load_config()
+
+    assert cfg.calendar_html_views == ()

@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Office Calendar - {{ title }}</title>
+  <style>
+    :root {
+      --bg: #f7f9fc;
+      --surface: #ffffff;
+      --surface-alt: #eef3f8;
+      --text: #132238;
+      --muted: #5d6b7f;
+      --accent: #2b6cb0;
+      --border: rgba(19, 34, 56, 0.12);
+      --shadow: 0 16px 40px rgba(19, 34, 56, 0.08);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #08111f;
+        --surface: #102033;
+        --surface-alt: #16273e;
+        --text: #edf3fb;
+        --muted: #9fb0c4;
+        --accent: #84b6ff;
+        --border: rgba(255, 255, 255, 0.12);
+        --shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: linear-gradient(180deg, var(--bg), var(--surface-alt));
+      color: var(--text);
+    }
+    .page {
+      min-height: 100vh;
+      padding: 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+    .header, .footer {
+      background: color-mix(in srgb, var(--surface) 88%, transparent);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+      padding: 28px 32px;
+    }
+    .header h1 {
+      margin: 0 0 8px;
+      font-size: clamp(2rem, 4vw, 3.25rem);
+      letter-spacing: -0.03em;
+    }
+    .header .subtitle {
+      margin: 0;
+      color: var(--muted);
+      font-size: clamp(1rem, 1.6vw, 1.25rem);
+    }
+    .stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 18px;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 8px 14px;
+      background: var(--surface-alt);
+      color: var(--accent);
+      font-weight: 600;
+    }
+    .list {
+      display: grid;
+      gap: 16px;
+    }
+    .event-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 22px 24px;
+      box-shadow: var(--shadow);
+      display: grid;
+      gap: 10px;
+    }
+    .event-time {
+      color: var(--accent);
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+    .event-subject {
+      font-size: clamp(1.4rem, 2vw, 2rem);
+      font-weight: 700;
+      line-height: 1.15;
+    }
+    .event-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      color: var(--muted);
+    }
+    .meta-item {
+      display: inline-flex;
+      align-items: center;
+      padding: 7px 12px;
+      border-radius: 999px;
+      background: var(--surface-alt);
+    }
+    .empty-state {
+      border: 2px dashed var(--border);
+      border-radius: 20px;
+      padding: 42px 24px;
+      text-align: center;
+      color: var(--muted);
+      font-size: clamp(1.2rem, 2vw, 1.8rem);
+      background: var(--surface);
+    }
+    .footer {
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    @media (max-width: 900px) {
+      .page { padding: 20px; }
+      .header, .footer { padding: 22px; border-radius: 18px; }
+      .event-card { padding: 18px 20px; border-radius: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="header">
+      <h1>Office Calendar - {{ title }}</h1>
+      <p class="subtitle">{{ date_range }}</p>
+      <div class="stats">
+        <span class="pill">{{ event_count }} event(s)</span>
+      </div>
+    </section>
+    <section class="list">
+      {% if events %}
+        {% for event in events %}
+        <article class="event-card">
+          <div class="event-time">{{ event.time }}</div>
+          <div class="event-subject">{{ event.subject }}</div>
+          <div class="event-meta">{% if event.location %}<span class="meta-item">{{ event.location }}</span>{% endif %}{% if event.organizer %}<span class="meta-item">{{ event.organizer }}</span>{% endif %}</div>
+        </article>
+        {% endfor %}
+      {% else %}
+      <div class="empty-state">No events scheduled</div>
+      {% endif %}
+    </section>
+    <section class="footer">
+      {{ generated_at_label }}
+    </section>
+  </main>
+</body>
+</html>

@@ -105,6 +105,7 @@ def calendar_snapshot_dir(tmp_path: Path) -> Path:
 def _setup_env(
     monkeypatch: pytest.MonkeyPatch,
     calendar_dir: Path,
+    template_dir: Path,
     *,
     dry_run: bool = False,
 ) -> None:
@@ -114,10 +115,7 @@ def _setup_env(
     monkeypatch.setenv("CALENDAR_JSON_PATH", str(calendar_dir))
     monkeypatch.setenv("CALENDAR_ENABLE_HTML", "true")
     monkeypatch.setenv("CALENDAR_HTML_VIEWS", "today,this_week,next_2_weeks")
-    monkeypatch.setenv(
-        "CALENDAR_LAYOUT_NAMES",
-        "Calendar - Today,Calendar - This Week,Calendar - Next 2 Weeks",
-    )
+    monkeypatch.setenv("CALENDAR_TEMPLATE_DIR", str(template_dir))
     monkeypatch.setenv("CALENDAR_AUTO_PUBLISH", "true")
     monkeypatch.setenv("CALENDAR_TIMEZONE", "UTC")
     monkeypatch.setenv("CALENDAR_PACKAGE_RETENTION_DAYS", "30")
@@ -133,7 +131,10 @@ def test_run_calendar_html_upload_generates_and_deploys_all_views(
     tmp_path: Path,
 ) -> None:
     """Three packages (one per view) must be generated and each deployed."""
-    _setup_env(monkeypatch, calendar_snapshot_dir)
+    # Use the bundled template directory
+    template_dir = Path(__file__).parent.parent.parent / "templates" / "calendar"
+    
+    _setup_env(monkeypatch, calendar_snapshot_dir, template_dir)
     cfg = load_config()
     # Use tmp_path as scripts_dir so packages land in a clean directory.
     cfg.calendar_json_path = calendar_snapshot_dir
@@ -159,9 +160,9 @@ def test_run_calendar_html_upload_generates_and_deploys_all_views(
     )
 
     deployed_layout_names = [c[1]["layout_name"] for c in deploy_calls]
-    assert "Calendar - Today" in deployed_layout_names
-    assert "Calendar - This Week" in deployed_layout_names
-    assert "Calendar - Next 2 Weeks" in deployed_layout_names
+    assert "Calendar Today" in deployed_layout_names
+    assert "Calendar This Week" in deployed_layout_names
+    assert "Calendar Next 2 Weeks" in deployed_layout_names
 
     for call in deploy_calls:
         args = call[1]
@@ -176,7 +177,10 @@ def test_run_calendar_html_upload_dry_run_skips_deploy(
     tmp_path: Path,
 ) -> None:
     """In dry-run mode no deploy calls should be made."""
-    _setup_env(monkeypatch, calendar_snapshot_dir, dry_run=True)
+    # Use the bundled template directory
+    template_dir = Path(__file__).parent.parent.parent / "templates" / "calendar"
+    
+    _setup_env(monkeypatch, calendar_snapshot_dir, template_dir, dry_run=True)
     cfg = load_config()
     cfg.dry_run = True
     cfg.calendar_json_path = calendar_snapshot_dir
@@ -197,3 +201,38 @@ def test_run_calendar_html_upload_dry_run_skips_deploy(
     client = fake_holder["client"]
     deploy_calls = [c for c in client.calls if c[0] == "deploy_calendar_package_to_layout"]
     assert len(deploy_calls) == 0, "dry_run must not call deploy_calendar_package_to_layout"
+
+
+def test_run_calendar_html_upload_fails_fast_when_view_config_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    calendar_snapshot_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """If any configured view is missing, fail before constructing/calling Xibo client."""
+    template_dir = tmp_path / "template"
+    views_dir = template_dir / "views"
+    views_dir.mkdir(parents=True)
+    (template_dir / "template.html").write_text("<html>{{ title }}</html>", encoding="utf-8")
+    (views_dir / "today.json").write_text(
+        json.dumps({"title": "Today", "window_days": 1, "layout_name": "Calendar Today"}),
+        encoding="utf-8",
+    )
+
+    _setup_env(monkeypatch, calendar_snapshot_dir, template_dir)
+    monkeypatch.setenv("CALENDAR_HTML_VIEWS", "today,missing_view")
+    cfg = load_config()
+    cfg.calendar_json_path = calendar_snapshot_dir
+
+    fake_holder: dict[str, FakeXiboClient] = {}
+
+    def _factory(base_url: str, verify_tls: bool, timeout: int) -> FakeXiboClient:
+        client = FakeXiboClient(base_url, verify_tls, timeout)
+        fake_holder["client"] = client
+        return client
+
+    monkeypatch.setattr(app, "XiboClient", _factory)
+
+    exit_code = app.run_calendar_html_upload(cfg, tmp_path)
+
+    assert exit_code == 2
+    assert "client" not in fake_holder

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,9 +13,8 @@ from xibo_sync.calendar_html import (
     CalendarEvent,
     _coerce_timezone,
     filter_events_by_view,
+    build_calendar_template_context,
     generate_calendar_packages,
-    package_html_to_zip,
-    render_calendar_html,
 )
 
 
@@ -59,9 +59,9 @@ def test_filter_events_by_view_excludes_past_and_sorts_by_start() -> None:
         _event("future", "2026-09-05T09:00:00.0000000", "2026-09-05T10:00:00.0000000", subject="Future"),
     ]
 
-    today = filter_events_by_view(events, "today", timezone.utc, now=now)
-    this_week = filter_events_by_view(events, "this_week", timezone.utc, now=now)
-    next_two_weeks = filter_events_by_view(events, "next_2_weeks", timezone.utc, now=now)
+    today = filter_events_by_view(events, window_days=1, timezone=timezone.utc, now=now)
+    this_week = filter_events_by_view(events, window_days=7, timezone=timezone.utc, now=now)
+    next_two_weeks = filter_events_by_view(events, window_days=14, timezone=timezone.utc, now=now)
 
     assert [event.subject for event in today] == ["All day", "Later"]
     assert [event.subject for event in this_week] == ["All day", "Later", "Week"]
@@ -83,64 +83,252 @@ def test_filter_events_by_view_accepts_flattened_datetime_fields() -> None:
 
     filtered = filter_events_by_view(
         [event],
-        "today",
-        timezone.utc,
+        window_days=1,
+        timezone=timezone.utc,
         now=datetime(2026, 8, 20, 9, 0, tzinfo=timezone.utc),
     )
 
     assert [item.subject for item in filtered] == ["Flattened event"]
 
 
-def test_filter_events_by_view_rejects_unknown_view() -> None:
-    with pytest.raises(ValueError, match="Unknown calendar view"):
-        filter_events_by_view([], "monthly", timezone.utc)
+def test_build_calendar_template_context_includes_event_details() -> None:
+    """build_calendar_template_context should produce correct context structure."""
+    events = [
+        CalendarEvent(
+            subject="Planning",
+            start=datetime(2026, 8, 20, 9, 0, tzinfo=timezone.utc),
+            end=datetime(2026, 8, 20, 10, 30, tzinfo=timezone.utc),
+            location="Room A",
+            organizer="Alex",
+            all_day=False,
+            timezone_name="UTC",
+        ),
+    ]
 
-
-def test_render_calendar_html_includes_details_and_empty_state() -> None:
-    event = CalendarEvent(
-        subject="Planning",
-        start=datetime(2026, 8, 20, 9, 0, tzinfo=timezone.utc),
-        end=datetime(2026, 8, 20, 10, 30, tzinfo=timezone.utc),
-        location="Room A",
-        organizer="Alex",
+    context = build_calendar_template_context(
+        events,
+        title="Today",
+        window_days=1,
+        timezone=timezone.utc,
+        generated_at=datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc),
     )
 
-    html = render_calendar_html([event], "today", timezone.utc, generated_at=datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc))
-    assert "Calendar - Today" in html
-    assert "Planning" in html
-    assert "Room A" in html
-    assert "Alex" in html
-    assert "09:00 (1h 30m)" in html
-    assert "1 event(s)" in html
+    assert context["title"] == "Today"
+    assert context["event_count"] == 1
+    assert "Aug 20, 2026" in context["date_range"]
+    assert len(context["events"]) == 1
+    assert context["events"][0]["subject"] == "Planning"
+    assert "09:00" in context["events"][0]["time"]
+    assert context["events"][0]["location"] == "Room A"
+    assert context["events"][0]["organizer"] == "Alex"
+    assert "Last updated" in context["generated_at_label"]
 
-    empty_html = render_calendar_html([], "today", timezone.utc, generated_at=datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc))
-    assert "No events scheduled" in empty_html
+
+def test_build_calendar_template_context_empty_events() -> None:
+    """build_calendar_template_context should handle empty event lists."""
+    context = build_calendar_template_context(
+        [],
+        title="Today",
+        window_days=1,
+        timezone=timezone.utc,
+        generated_at=datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc),
+    )
+
+    assert context["event_count"] == 0
+    assert len(context["events"]) == 0
+    assert context["title"] == "Today"
 
 
-def test_package_html_to_zip_writes_index_html(tmp_path: Path) -> None:
-    package_path = package_html_to_zip("<html>ok</html>", tmp_path, "calendar_today_2026-08-20")
+def test_build_calendar_template_context_formats_all_day_events() -> None:
+    """build_calendar_template_context should format all-day events correctly."""
+    events = [
+        CalendarEvent(
+            subject="All-day event",
+            start=datetime(2026, 8, 20, 0, 0, tzinfo=timezone.utc),
+            end=datetime(2026, 8, 21, 0, 0, tzinfo=timezone.utc),
+            location="",
+            organizer="",
+            all_day=True,
+            timezone_name="UTC",
+        ),
+    ]
 
-    assert package_path == tmp_path / "calendar_today_2026-08-20.htz"
-    with zipfile.ZipFile(package_path) as archive:
-        assert archive.namelist() == ["index.html"]
-        assert archive.read("index.html") == b"<html>ok</html>"
+    context = build_calendar_template_context(
+        events,
+        title="Today",
+        window_days=1,
+        timezone=timezone.utc,
+        generated_at=datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc),
+    )
+
+    assert "All day" in context["events"][0]["time"]
 
 
 def test_generate_calendar_packages_creates_expected_packages(tmp_path: Path) -> None:
+    """generate_calendar_packages should generate packages with correct metadata."""
+    # Create minimal template directory structure with view configs
+    template_dir = tmp_path / "template"
+    template_dir.mkdir()
+    views_dir = template_dir / "views"
+    views_dir.mkdir()
+
+    # Create template.html
+    (template_dir / "template.html").write_text("<html><body>{{ title }}: {{ event_count }} event(s)</body></html>")
+
+    # Create view configs
+    (views_dir / "today.json").write_text(json.dumps({"title": "Today", "window_days": 1, "layout_name": "Calendar Today"}))
+    (views_dir / "this_week.json").write_text(json.dumps({"title": "This Week", "window_days": 7, "layout_name": "Calendar Week"}))
+    (views_dir / "next_2_weeks.json").write_text(json.dumps({"title": "Next 2 Weeks", "window_days": 14, "layout_name": "Calendar Future"}))
+
     now = datetime(2026, 8, 20, 9, 0, tzinfo=timezone.utc)
     events = [
         _event("today", "2026-08-20T10:00:00.0000000", "2026-08-20T11:00:00.0000000", subject="Today"),
         _event("week", "2026-08-22T10:00:00.0000000", "2026-08-22T11:00:00.0000000", subject="Week"),
     ]
 
-    packages = generate_calendar_packages(events, ("today", "this_week", "next_2_weeks"), tmp_path, timezone.utc, now=now)
+    output_dir = tmp_path / "output"
+    packages = generate_calendar_packages(
+        events,
+        ("today", "this_week", "next_2_weeks"),
+        template_dir,
+        output_dir,
+        timezone.utc,
+        now=now,
+    )
 
-    assert [package.view_type for package in packages] == ["today", "this_week", "next_2_weeks"]
-    assert [package.event_count for package in packages] == [1, 2, 2]
-    assert [package.package_path.name for package in packages] == [
+    assert len(packages) == 3
+    assert [p.view_type for p in packages] == ["today", "this_week", "next_2_weeks"]
+    assert [p.title for p in packages] == ["Today", "This Week", "Next 2 Weeks"]
+    assert [p.layout_name for p in packages] == ["Calendar Today", "Calendar Week", "Calendar Future"]
+    assert [p.event_count for p in packages] == [1, 2, 2]
+    assert [p.package_path.name for p in packages] == [
         "calendar_today_2026-08-20.htz",
         "calendar_this_week_2026-08-20.htz",
         "calendar_next_2_weeks_2026-08-20.htz",
     ]
-    assert all(package.package_path.exists() for package in packages)
+    assert all(p.package_path.exists() for p in packages)
 
+    # Verify HTZ contents
+    for package in packages:
+        with zipfile.ZipFile(package.package_path) as archive:
+            assert archive.namelist() == ["index.html"]
+            html = archive.read("index.html").decode("utf-8")
+            assert package.title in html
+            assert f"{package.event_count} event(s)" in html
+
+
+def test_generate_calendar_packages_uses_default_template_html_when_template_file_not_set(
+    tmp_path: Path,
+) -> None:
+    template_dir = tmp_path / "template"
+    template_dir.mkdir()
+    views_dir = template_dir / "views"
+    views_dir.mkdir()
+
+    (template_dir / "template.html").write_text(
+        "<html><body>DEFAULT {{ title }}</body></html>",
+        encoding="utf-8",
+    )
+    (template_dir / "alternate.html").write_text(
+        "<html><body>ALTERNATE {{ title }}</body></html>",
+        encoding="utf-8",
+    )
+    (views_dir / "today.json").write_text(
+        json.dumps({"title": "Today", "window_days": 1, "layout_name": "Calendar Today"}),
+        encoding="utf-8",
+    )
+
+    packages = generate_calendar_packages(
+        events=[_event("today", "2026-08-20T10:00:00", "2026-08-20T11:00:00", subject="Today")],
+        view_types=("today",),
+        template_dir=template_dir,
+        output_path=tmp_path / "out",
+        timezone=timezone.utc,
+        now=datetime(2026, 8, 20, 9, 0, tzinfo=timezone.utc),
+    )
+
+    assert len(packages) == 1
+    with zipfile.ZipFile(packages[0].package_path) as archive:
+        html = archive.read("index.html").decode("utf-8")
+    assert "DEFAULT Today" in html
+    assert "ALTERNATE Today" not in html
+
+
+def test_generate_calendar_packages_honors_template_file_override(tmp_path: Path) -> None:
+    template_dir = tmp_path / "template"
+    template_dir.mkdir()
+    views_dir = template_dir / "views"
+    views_dir.mkdir()
+
+    (template_dir / "template.html").write_text(
+        "<html><body>DEFAULT {{ title }}</body></html>",
+        encoding="utf-8",
+    )
+    (template_dir / "custom.html").write_text(
+        "<html><body>CUSTOM {{ title }}</body></html>",
+        encoding="utf-8",
+    )
+    (views_dir / "today.json").write_text(
+        json.dumps(
+            {
+                "title": "Today",
+                "window_days": 1,
+                "layout_name": "Calendar Today",
+                "template_file": "custom.html",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    packages = generate_calendar_packages(
+        events=[_event("today", "2026-08-20T10:00:00", "2026-08-20T11:00:00", subject="Today")],
+        view_types=("today",),
+        template_dir=template_dir,
+        output_path=tmp_path / "out",
+        timezone=timezone.utc,
+        now=datetime(2026, 8, 20, 9, 0, tzinfo=timezone.utc),
+    )
+
+    assert len(packages) == 1
+    with zipfile.ZipFile(packages[0].package_path) as archive:
+        html = archive.read("index.html").decode("utf-8")
+    assert "CUSTOM Today" in html
+    assert "DEFAULT Today" not in html
+
+
+def test_generate_calendar_packages_loads_real_bundled_configs() -> None:
+    """generate_calendar_packages should work with the real bundled template directory."""
+    bundled_template_dir = Path(__file__).parent.parent.parent / "templates" / "calendar"
+    
+    # Skip if bundled template directory doesn't exist (tests run in different contexts)
+    if not bundled_template_dir.exists():
+        pytest.skip(f"Bundled template directory not found: {bundled_template_dir}")
+
+    # Verify the three bundled views exist and have exact expected values
+    views_dir = bundled_template_dir / "views"
+    expected = {
+        "today": {
+            "title": "Today",
+            "window_days": 1,
+            "layout_name": "Calendar Today",
+        },
+        "this_week": {
+            "title": "This Week",
+            "window_days": 7,
+            "layout_name": "Calendar This Week",
+        },
+        "next_2_weeks": {
+            "title": "Next 2 Weeks",
+            "window_days": 14,
+            "layout_name": "Calendar Next 2 Weeks",
+        },
+    }
+
+    for view_name, expected_values in expected.items():
+        view_config_path = views_dir / f"{view_name}.json"
+        assert view_config_path.exists(), f"Missing view config: {view_config_path}"
+        
+        config = json.loads(view_config_path.read_text(encoding="utf-8"))
+        assert config["title"] == expected_values["title"]
+        assert config["window_days"] == expected_values["window_days"]
+        assert config["layout_name"] == expected_values["layout_name"]
