@@ -16,6 +16,7 @@ The implementation now lives under `scripts/xibo_sync/` so the configuration, UI
 - `scripts/`: Python code and runtime configuration.
   - `sync_xibo.py`: launcher script.
   - `xibo_sync/`: modular sync implementation.
+  - `.venv/`: local Python virtual environment; activate before any Python or pip command.
   - `.env`: local configuration and credentials.
   - `requirements.txt`: Python dependencies.
   - `logs/`: optional log output target.
@@ -111,15 +112,80 @@ the calendar schema. Cancelled events are excluded by default.
 `--upload-calendar-html` generates self-contained HTML calendar packages (`.htz` ZIP files), one
 per configured view, and deploys each to a named Xibo layout.
 
+#### Template System
+
+Calendar HTML packages are generated using a template system that separates generic rendering logic
+from calendar-specific data processing:
+
+- **`scripts/xibo_sync/html_packaging.py`** (generic): Provides template rendering, config loading,
+  and ZIP packaging. Reusable by any future custom HTML package type, not just calendars.
+  - `render_template(template_dir, template_file, context)` – renders a Jinja2 template with a context dict.
+  - `load_view_config(views_dir, view_type)` – loads a view configuration JSON file.
+  - `package_html_to_zip(html_content, output_path, package_name)` – writes HTML to a `.htz` ZIP file.
+
+- **`scripts/xibo_sync/calendar_html.py`** (calendar-specific): Handles event filtering, normalization,
+  and template context building. Delegates rendering/packaging to `html_packaging.py`.
+  - `filter_events_by_view(events, window_days, ...)` – filters raw calendar events by time window.
+  - `build_calendar_template_context(events, title, window_days, ...)` – builds the Jinja2 context dict.
+  - `generate_calendar_packages(events, view_types, template_dir, output_path, ...)` – orchestrates
+    the generation pipeline for all requested views.
+
+#### Template Directory Layout
+
+Templates live in `scripts/templates/calendar/` (configurable via `CALENDAR_TEMPLATE_DIR`):
+
+```
+scripts/templates/calendar/
+├── template.html          – Main Jinja2 template (editable, previewable in VS Code)
+├── views/
+│   ├── today.json          – Config for 'today' view
+│   ├── this_week.json      – Config for 'this_week' view
+│   ├── next_2_weeks.json   – Config for 'next_2_weeks' view
+│   └── [custom_view].json  – Custom view configs (add your own)
+└── preview_sample.json     – Sample event context for template preview
+```
+
+#### Per-View Configuration Schema
+
+Each view is configured by a JSON file in `views/` with the following schema:
+
+```json
+{
+  "title": "Today",
+  "window_days": 1,
+  "layout_name": "Calendar Today",
+  "template_file": "template.html"
+}
+```
+
+- `title` (required): Display title for the calendar view (e.g., "Today", "This Week").
+- `window_days` (required): Number of days to include in the time window for event filtering.
+- `layout_name` (required): Xibo layout name to deploy the package to.
+- `template_file` (optional): Custom template filename (defaults to `template.html`). Allows
+  different views to use different templates if needed.
+
+#### Bundled Views
+
+Three views ship by default with the configs/layout names shown below. You can customize these
+layout names by editing the JSON files in `scripts/templates/calendar/views/`:
+
+| View | Config File | Default window | Default layout name |
+|------|-------------|-----------------|---------------------|
+| `today` | `today.json` | 1 day | `Calendar Today` |
+| `this_week` | `this_week.json` | 7 days | `Calendar This Week` |
+| `next_2_weeks` | `next_2_weeks.json` | 14 days | `Calendar Next 2 Weeks` |
+
 #### Generation pipeline
 
 1. Load the calendar JSON snapshot selected by `CALENDAR_JSON_PATH`.
-2. For each view in `CALENDAR_HTML_VIEWS`, call `generate_calendar_packages()` from
-   `calendar_html.py`. Each package is a ZIP archive containing a single `index.html` with
-   embedded CSS — no external dependencies.
-3. Packages are written to `scripts/calendar_packages/` with names such as
-   `calendar_today_2026-08-20.htz`.
-4. For each package + layout name pair, call `deploy_calendar_package_to_layout()` in `client.py`.
+2. For each view name in `CALENDAR_HTML_VIEWS`:
+   - Load the view's JSON config from `scripts/templates/calendar/views/<view>.json`.
+   - Filter calendar events by the view's `window_days`.
+   - Build a template context dict with title, date range, event count, event list, and timestamp.
+   - Render the template (`template.html` or a custom template_file) with that context using Jinja2.
+   - Package the rendered HTML into a `.htz` file with the naming convention
+     `calendar_<view>_YYYY-MM-DD.htz`.
+3. Packages are written to `scripts/calendar_packages/`.
 
 #### Deploy pipeline (`deploy_calendar_package_to_layout`)
 
@@ -151,13 +217,11 @@ per configured view, and deploys each to a named Xibo layout.
 | Key | Default | Description |
 |-----|---------|-------------|
 | `CALENDAR_ENABLE_HTML` | `false` | Enable HTML package generation. Only the `--upload-calendar-html` flag triggers the workflow; this key can be used by external orchestration. |
-| `CALENDAR_HTML_VIEWS` | `today,this_week,next_2_weeks` | Comma-separated views. Valid values: `today`, `this_week`, `next_2_weeks`. |
-| `CALENDAR_LAYOUT_NAMES` | `Calendar - Today,Calendar - This Week,Calendar - Next 2 Weeks` | Comma-separated layout names. Order must match `CALENDAR_HTML_VIEWS`. |
+| `CALENDAR_HTML_VIEWS` | `today,this_week,next_2_weeks` | Comma-separated view names to generate. Must have matching `views/<name>.json` files in the template directory. View names are validated at runtime in `app.py`. |
+| `CALENDAR_TEMPLATE_DIR` | `templates/calendar` | Template directory containing `template.html`, `views/*.json` configs, and `preview_sample.json`. Relative paths resolve from `scripts/`. |
 | `CALENDAR_AUTO_PUBLISH` | `true` | Publish layouts after each package assignment. |
 | `CALENDAR_TIMEZONE` | `UTC` | IANA timezone name used for event filtering and display. |
 | `CALENDAR_PACKAGE_RETENTION_DAYS` | `30` | Delete local `.htz` files from `scripts/calendar_packages/` whose mtime exceeds this age. |
-
-`CALENDAR_HTML_VIEWS` and `CALENDAR_LAYOUT_NAMES` must have the same number of entries; `load_config()` raises `ValueError` otherwise. Each view name must be one of the three supported identifiers.
 
 #### Local cleanup
 
@@ -182,6 +246,8 @@ phase; manage old library items via the CMS UI or the `DELETE /library/{mediaId}
 Use `python .\sync_xibo.py --upload-calendar --dry-run --yes` to inspect the selected snapshot and
 row count without changing Xibo. Calendar upload does not enter the media deletion workflow.
 
+Always activate `scripts/.venv` before running Python or pip commands from this repository so installs do not modify a global interpreter.
+
 ## Testing
 
 Automated tests live under `scripts/tests/` and use `pytest` (it also runs plain `unittest.TestCase` tests unchanged):
@@ -193,6 +259,7 @@ Setup and run:
 
 ```powershell
 cd scripts
+\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements-dev.txt
 python -m pytest            # full suite
 python -m pytest -m "not integration"   # unit tests only
@@ -266,8 +333,8 @@ When changing behavior:
 1. Update this file first or in the same change.
 2. Keep `Readme.md` focused on quick-start and user guidance.
 3. Add a dry-run verification step before any destructive run.
-4. Run `python -m py_compile scripts/*.py` or the equivalent syntax check.
-5. Add or update tests under `scripts/tests/` for any new or changed custom logic, then run `python -m pytest` from `scripts/` (see [Testing](#testing)).
+4. Activate `scripts/.venv`, then run `python -m py_compile scripts/*.py` or the equivalent syntax check.
+5. Add or update tests under `scripts/tests/` for any new or changed custom logic, then run `python -m pytest` from `scripts/` with `scripts/.venv` active (see [Testing](#testing)).
 
 ## Docker / Xibo CMS Reference
 

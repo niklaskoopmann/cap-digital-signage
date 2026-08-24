@@ -4,6 +4,11 @@ description: Plan new features, change requests, and bug fixes for the cap-digit
 argument-hint: A feature request, change request, or bug report that needs an implementation plan for another agent.
 tools: [read, search, edit, agent]
 agents: [Digital Signage Plan Reviewer]
+handoffs:
+  - label: Start Implementation
+    agent: Digital Signage Coder
+    prompt: Implement the approved plan in docs/PLAN.md. Follow the plan completely, make the required code, test, and documentation changes, and validate the affected behavior.
+    send: true
 ---
 
 # Digital Signage Planner
@@ -33,6 +38,9 @@ You convert a requested feature, change request, or bug report into a concrete i
 - Include test strategy (unit/integration) for new logic.
 - Include documentation updates when behavior changes.
 - Call out assumptions, risks, and rollback considerations.
+- Always include an `Acceptance Criteria` section.
+- Acceptance criteria must be SMART: specific, measurable, achievable, realistic, and timely in the sense that they define when the work can be accepted.
+- Do not include task duration estimates, hour/day approximations, ETAs, story points, or schedule predictions anywhere in `docs/PLAN.md`.
 - Prefer small, local, maintainable changes over broad redesign.
 
 ## Approach
@@ -81,7 +89,7 @@ Return only markdown for `docs/PLAN.md`, using this structure:
   Mitigation: ...
 
 ## Acceptance Criteria
-- ...
+- <specific, measurable, achievable, realistic, and acceptance-timed criterion with no duration estimate>
 ```
 
 Include an `Open Questions` section only when unresolved details remain after clarifications.

@@ -6,6 +6,8 @@ This repository centers on the Xibo media sync workflow.
 
 - `scripts/sync_xibo.py` is the main script to run.
 - The sync logic now lives in `scripts/xibo_sync/`, but this script remains the entry point.
+- For any Python or pip command, run from `scripts/` and activate `scripts/.venv` first:
+  `.\.venv\Scripts\Activate.ps1`.
 
 ## Where to look first
 
@@ -38,5 +40,5 @@ This repository centers on the Xibo media sync workflow.
   (multiple modules cooperating, e.g. `app.py` orchestration against a mocked `XiboClient`).
 - Every new piece of custom logic added to `scripts/xibo_sync/` must ship with a test: unit test in
   the matching module's test file, plus an integration test if the change wires modules together.
-- Run tests with `python -m pytest` from `scripts/` (install `scripts/requirements-dev.txt` first). See
+- Run tests with `python -m pytest` from `scripts/` after activating `scripts/.venv` (install `scripts/requirements-dev.txt` first). See
   the "Testing" section in `docs/TECHNICAL.md` for full details.

@@ -45,13 +45,17 @@ You need:
 - Access to the Xibo CMS.
 - A filled `scripts/.env` file.
 - Your media files in the `media/` folder.
+- The local virtual environment at `scripts/.venv`.
 
 Install the Python dependencies once:
 
 ```powershell
 cd C:\Path\To\cap-digital-signage\scripts
+\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 ```
+
+Activate `scripts/.venv` before every Python or pip command so package installs and execution stay local to this repository.
 
 ## How to run the sync
 
@@ -60,6 +64,7 @@ python -m pip install -r requirements.txt
 Use dry-run mode if you want to see what would happen without uploading or deleting anything:
 
 ```powershell
+\.venv\Scripts\Activate.ps1
 python .\sync_xibo.py --dry-run --yes
 ```
 
@@ -68,12 +73,14 @@ python .\sync_xibo.py --dry-run --yes
 Preview the newest calendar snapshot without changing Xibo:
 
 ```powershell
+\.venv\Scripts\Activate.ps1
 python .\sync_xibo.py --upload-calendar --dry-run --yes
 ```
 
 Run the calendar replacement:
 
 ```powershell
+\.venv\Scripts\Activate.ps1
 python .\sync_xibo.py --upload-calendar --yes
 ```
 
@@ -85,6 +92,7 @@ When `CALENDAR_JSON_PATH` points to a directory, the script selects the newest f
 If the machine is already on the correct network:
 
 ```powershell
+\.venv\Scripts\Activate.ps1
 python .\sync_xibo.py --yes
 ```
 
@@ -109,6 +117,7 @@ New uploads are tagged only after that verification passes, and they are tagged 
 Example:
 
 ```powershell
+\.venv\Scripts\Activate.ps1
 python .\sync_xibo.py --dry-run --yes
 ```
 
@@ -142,11 +151,12 @@ as `.htz` files, and deploys each one to a named layout in Xibo — no manual CM
 ### Prerequisites
 
 - Python 3.10+ with the dependencies from `requirements.txt` installed.
+- Activate `scripts/.venv` before running commands.
 - A working Xibo CMS reachable at `CMS_BASE_URL`.
 - `CALENDAR_JSON_PATH` pointing to a directory containing a valid calendar snapshot.
-- Each target layout must have **at least one region** in the Xibo CMS before the first run.
-  The deploy step looks up the first region and assigns the package to its playlist. Create regions
-  manually in the CMS layout designer if they do not already exist.
+- Target layouts do not need a pre-created region.
+	If a layout has no regions, the deploy flow attempts to create a full-screen region automatically
+	and then assigns the package to that region's playlist.
 
 ### Running
 
@@ -154,49 +164,127 @@ Preview without changing anything:
 
 ```powershell
 cd scripts
+\.venv\Scripts\Activate.ps1
 python sync_xibo.py --upload-calendar-html --dry-run --yes
 ```
 
 Deploy all configured views:
 
 ```powershell
+\.venv\Scripts\Activate.ps1
 python sync_xibo.py --upload-calendar-html --yes
 ```
 
 ### Configuration
 
-Add these keys to `scripts/.env` (all have sensible defaults):
+The calendar HTML generation is configured by environment variables in `scripts/.env`:
 
 ```env
 # ---- Calendar HTML packages ----
+# Enable calendar HTML package generation
 CALENDAR_ENABLE_HTML=true
 
-# Views to generate (comma-separated). Valid: today, this_week, next_2_weeks
+# Views to generate (comma-separated)
 CALENDAR_HTML_VIEWS=today,this_week,next_2_weeks
 
-# Layout names — one per view, in matching order.
-CALENDAR_LAYOUT_NAMES=Calendar - Today,Calendar - This Week,Calendar - Next 2 Weeks
+# Optional: path to the template directory (defaults to scripts/templates/calendar)
+# CALENDAR_TEMPLATE_DIR=templates/calendar
 
-# Publish layouts automatically after each package upload.
+# Publish layouts automatically after each package upload
 CALENDAR_AUTO_PUBLISH=true
 
-# IANA timezone for event filtering and time display.
+# IANA timezone for event filtering and time display
 CALENDAR_TIMEZONE=Europe/Amsterdam
 
-# Delete local packages older than this many days.
+# Delete local packages older than this many days
 CALENDAR_PACKAGE_RETENTION_DAYS=30
+```
+
+**Important**: View names in `CALENDAR_HTML_VIEWS` must have corresponding configuration files:
+
+- Each view name (e.g., `today`, `this_week`) requires a file named `views/<name>.json` in the
+  template directory.
+- Each `.json` file specifies the view's title, time window, and the Xibo layout name to deploy to.
+
+The bundled templates come with three views: `today`, `this_week`, and `next_2_weeks`. Their
+layout names are `Calendar Today`, `Calendar This Week`, and `Calendar Next 2 Weeks`.
+
+### Customizing Views
+
+#### Edit an existing view's title or window
+
+1. Open the view's config file (e.g., `scripts/templates/calendar/views/today.json`)
+2. Edit the `title`, `window_days`, or `layout_name` fields as needed
+3. Re-run the sync
+
+Example: to change the "Today" view to show 3 days instead of 1:
+
+```json
+{
+  "title": "Today & 2 More Days",
+  "window_days": 3,
+  "layout_name": "Calendar Today"
+}
+```
+
+#### Add a custom view
+
+1. Create a new config file `scripts/templates/calendar/views/<myview>.json`:
+
+```json
+{
+  "title": "My Custom View",
+  "window_days": 30,
+  "layout_name": "Calendar Custom"
+}
+```
+
+2. Add the view name to `CALENDAR_HTML_VIEWS` in `scripts/.env`:
+
+```env
+CALENDAR_HTML_VIEWS=today,this_week,next_2_weeks,myview
+```
+
+3. Re-run the sync.
+
+No Python code changes required! The new view will be generated and deployed just like the bundled views.
+
+### Preview Templates
+
+To preview a template with sample data before running the full sync:
+
+```powershell
+cd scripts
+\.venv\Scripts\Activate.ps1
+python render_template_preview.py
+```
+
+This generates a `template.preview.html` file in the template directory. Open it in VS Code
+(right-click > **Open in Simple Browser**) or a web browser to see how your template looks with
+sample events.
+
+For a custom template directory:
+
+```powershell
+\.venv\Scripts\Activate.ps1
+python render_template_preview.py --template-dir ../my-templates/calendar
 ```
 
 ### Troubleshooting
 
-**"Layout has no regions" error**
-The target layout exists but has no regions. Open the layout in the Xibo CMS layout designer,
-add a full-screen region, and re-run.
+**"View config not found" error**
+Check that the view name in `CALENDAR_HTML_VIEWS` has a corresponding `.json` file in the
+`views/` subdirectory of your template directory. For example, a view named `myview` requires
+`views/myview.json`.
+
+**Region auto-creation fails for a layout**
+When a target layout has no regions, the deploy flow attempts to create one automatically.
+If this step fails, verify the API user can edit layouts and create regions, then re-run.
 
 **"No calendar packages were generated"**
 Check that `CALENDAR_JSON_PATH` resolves to a directory containing a valid snapshot file, and
-that `CALENDAR_HTML_VIEWS` contains at least one valid entry (`today`, `this_week`, or
-`next_2_weeks`).
+that `CALENDAR_HTML_VIEWS` contains at least one valid view name with a corresponding `.json` config
+file.
 
 **Empty events in a view**
 The generated package renders "No events scheduled" when no events fall in the view window. This
