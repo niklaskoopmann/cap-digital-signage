@@ -6,6 +6,7 @@ import json
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -22,6 +23,21 @@ def test_coerce_timezone_resolves_named_timezone() -> None:
     resolved_timezone = _coerce_timezone("UTC")
 
     assert resolved_timezone.utcoffset(datetime.min) == timezone.utc.utcoffset(datetime.min)
+
+
+def test_coerce_timezone_resolves_berlin_timezone() -> None:
+    """Test that Europe/Berlin timezone resolves correctly."""
+    resolved_timezone = _coerce_timezone("Europe/Berlin")
+    
+    # Berlin in summer (CEST = UTC+2)
+    summer_dt = datetime(2026, 8, 25, 12, 0, tzinfo=timezone.utc)
+    berlin_summer = summer_dt.astimezone(resolved_timezone)
+    assert berlin_summer.hour == 14
+    
+    # Berlin in winter (CET = UTC+1)
+    winter_dt = datetime(2026, 1, 15, 12, 0, tzinfo=timezone.utc)
+    berlin_winter = winter_dt.astimezone(resolved_timezone)
+    assert berlin_winter.hour == 13
 
 
 def _event(
@@ -88,6 +104,72 @@ def test_filter_events_by_view_accepts_flattened_datetime_fields() -> None:
     )
 
     assert [item.subject for item in filtered] == ["Flattened event"]
+
+
+def test_filter_events_by_view_berlin_summer_timezone_conversion() -> None:
+    """Test UTC-to-Berlin conversion for summer time (CEST = UTC+2)."""
+    # Event at 2026-08-25T12:00:00 UTC should display as 14:00 in Berlin summer time
+    events = [
+        _event("summer", "2026-08-25T12:00:00.0000000", "2026-08-25T13:00:00.0000000", subject="Summer event"),
+    ]
+    
+    filtered = filter_events_by_view(
+        events,
+        window_days=1,
+        timezone="Europe/Berlin",
+        now=datetime(2026, 8, 25, 12, 0, tzinfo=timezone.utc),
+    )
+    
+    assert len(filtered) == 1
+    assert filtered[0].subject == "Summer event"
+    # Start time should be 14:00 Berlin time (UTC 12:00 + 2 hours CEST)
+    assert filtered[0].start.hour == 14
+    assert filtered[0].start.minute == 0
+
+
+def test_filter_events_by_view_berlin_winter_timezone_conversion() -> None:
+    """Test UTC-to-Berlin conversion for winter time (CET = UTC+1)."""
+    # Event at 2026-01-15T12:00:00 UTC should display as 13:00 in Berlin winter time
+    events = [
+        _event("winter", "2026-01-15T12:00:00.0000000", "2026-01-15T13:00:00.0000000", subject="Winter event"),
+    ]
+    
+    filtered = filter_events_by_view(
+        events,
+        window_days=1,
+        timezone="Europe/Berlin",
+        now=datetime(2026, 1, 15, 12, 0, tzinfo=timezone.utc),
+    )
+    
+    assert len(filtered) == 1
+    assert filtered[0].subject == "Winter event"
+    # Start time should be 13:00 Berlin time (UTC 12:00 + 1 hour CET)
+    assert filtered[0].start.hour == 13
+    assert filtered[0].start.minute == 0
+
+
+def test_filter_events_by_view_berlin_local_day_boundary() -> None:
+    """Test that filtering uses Berlin-local calendar days, not UTC calendar days.
+    
+    Event at 2026-08-25T22:30:00 UTC (00:30 Aug 26 Berlin time) should be excluded 
+    from Aug 25 today view but included in Aug 26 view.
+    """
+    # Event at 22:30 UTC (midnight-ish in Berlin), outside of Berlin Aug 25
+    events = [
+        _event("boundary", "2026-08-25T22:30:00.0000000", "2026-08-25T23:00:00.0000000", subject="Boundary event"),
+    ]
+    
+    # View for Aug 25 Berlin time (reference_now is 2026-08-25 12:00 UTC = 14:00 Berlin)
+    today_berlin = filter_events_by_view(
+        events,
+        window_days=1,
+        timezone="Europe/Berlin",
+        now=datetime(2026, 8, 25, 12, 0, tzinfo=timezone.utc),
+    )
+    
+    # The event starts at 2026-08-26 00:30 Berlin time, which is after the Berlin window
+    # of 2026-08-25 00:00 to 2026-08-26 00:00, so it should be excluded
+    assert len(today_berlin) == 0
 
 
 def test_build_calendar_template_context_includes_event_details() -> None:

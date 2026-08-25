@@ -207,8 +207,9 @@ def filter_events_by_view(
 
         if normalized.timezone_name and normalized.timezone_name != getattr(reference_timezone, "key", normalized.timezone_name):
             logging.warning(
-                "Calendar event timezone '%s' differs from configured timezone; rendering with event timezone",
+                "Calendar event timezone '%s' differs from configured timezone '%s'; converting to configured timezone for display",
                 normalized.timezone_name,
+                getattr(reference_timezone, "key", str(reference_timezone)),
             )
 
         start_local = normalized.start.astimezone(reference_timezone)

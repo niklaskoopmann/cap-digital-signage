@@ -12,13 +12,21 @@
             "console": "integratedTerminal",
             "args": "${command:pickArgs}"
         },
-                {
-            "name": "sync_xibo.py --delete -y",
+        {
+            "name": "Sync, no Calendar, delete: sync_xibo.py --delete -y",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/scripts/sync_xibo.py",
             "console": "integratedTerminal",
             "args": "--delete -y"
+        },
+                {
+            "name": "Sync, with Calendar, no delete: sync_xibo.py --upload-calendar-html -y",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/sync_xibo.py",
+            "console": "integratedTerminal",
+            "args": "--upload-calendar-html -y"
         }
     ]
 }

@@ -220,7 +220,7 @@ layout names by editing the JSON files in `scripts/templates/calendar/views/`:
 | `CALENDAR_HTML_VIEWS` | `today,this_week,next_2_weeks` | Comma-separated view names to generate. Must have matching `views/<name>.json` files in the template directory. View names are validated at runtime in `app.py`. |
 | `CALENDAR_TEMPLATE_DIR` | `templates/calendar` | Template directory containing `template.html`, `views/*.json` configs, and `preview_sample.json`. Relative paths resolve from `scripts/`. |
 | `CALENDAR_AUTO_PUBLISH` | `true` | Publish layouts after each package assignment. |
-| `CALENDAR_TIMEZONE` | `UTC` | IANA timezone name used for event filtering and display. |
+| `CALENDAR_TIMEZONE` | `Europe/Berlin` | IANA timezone name used for both event filtering and display labels. Daylight saving transitions (e.g., CEST/CET for Europe/Berlin) are handled automatically by the `tzdata` package. |
 | `CALENDAR_PACKAGE_RETENTION_DAYS` | `30` | Delete local `.htz` files from `scripts/calendar_packages/` whose mtime exceeds this age. |
 
 #### Local cleanup

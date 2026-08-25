@@ -193,11 +193,15 @@ CALENDAR_HTML_VIEWS=today,this_week,next_2_weeks
 # Publish layouts automatically after each package upload
 CALENDAR_AUTO_PUBLISH=true
 
-# IANA timezone for event filtering and time display
-CALENDAR_TIMEZONE=Europe/Amsterdam
+# IANA timezone for event filtering and time display labels (default: Europe/Berlin).
+# The calendar uses this timezone for both selecting which events appear (local calendar days)
+# and formatting times on the display (e.g., 14:00 for UTC 12:00 during CEST summer time).
+# Daylight saving transitions are handled automatically (CEST/CET for Europe/Berlin).
+# Example: Europe/Berlin, Europe/Amsterdam, UTC
+CALENDAR_TIMEZONE=Europe/Berlin
 
 # Delete local packages older than this many days
-CALENDAR_PACKAGE_RETENTION_DAYS=30
+CALENDAR_PACKAGE_RETENTION_DAYS=1
 ```
 
 **Important**: View names in `CALENDAR_HTML_VIEWS` must have corresponding configuration files:

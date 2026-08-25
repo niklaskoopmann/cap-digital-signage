@@ -133,8 +133,16 @@ def test_load_config_calendar_html_defaults(monkeypatch: pytest.MonkeyPatch) -> 
     assert cfg.calendar_html_views == ("today", "this_week", "next_2_weeks")
     assert cfg.calendar_template_dir.name == "calendar"  # Default is "templates/calendar"
     assert cfg.calendar_auto_publish is True
-    assert cfg.calendar_timezone == "UTC"
+    assert cfg.calendar_timezone == "Europe/Berlin"
     assert cfg.calendar_package_retention_days == 30
+
+
+def test_load_config_calendar_timezone_can_override_to_utc(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required_env(monkeypatch, CALENDAR_TIMEZONE="UTC")
+
+    cfg = load_config()
+
+    assert cfg.calendar_timezone == "UTC"
 
 
 def test_load_config_calendar_template_dir_override(monkeypatch: pytest.MonkeyPatch) -> None:
