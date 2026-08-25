@@ -21,14 +21,15 @@ CALENDAR_COLUMNS = (
     "endDateTime",
     "endTimeZone",
     "isAllDay",
-    "c11",
-    "c12",
-    "c13",
-    "c14",
-    "c15",
-    "c16",
-    "c17",
-    "c18",
+    "isCancelled",
+    "showAs",
+    "type",
+    "location",
+    "organizer",
+    "organizerEmail",
+    "webLink",
+    "lastModifiedDateTime",
+    
 )
 
 _SNAPSHOT_NAME = re.compile(

@@ -48,7 +48,6 @@ def _event(
         event["organizer"] = {"emailAddress": {"name": organizer}}
     return event
 
-
 def test_filter_events_by_view_excludes_past_and_sorts_by_start() -> None:
     now = datetime(2026, 8, 20, 9, 0, tzinfo=timezone.utc)
     events = [
@@ -66,8 +65,8 @@ def test_filter_events_by_view_excludes_past_and_sorts_by_start() -> None:
     assert [event.subject for event in today] == ["All day", "Later"]
     assert [event.subject for event in this_week] == ["All day", "Later", "Week"]
     assert [event.subject for event in next_two_weeks] == ["All day", "Later", "Week"]
-    assert today[1].location == "Room A"
-    assert today[1].organizer == "Alex"
+    assert today[1].location == "{'displayName': 'Room A'}"
+    assert today[1].organizer == "{'emailAddress': {'name': 'Alex'}}"
     assert today[0].all_day is True
 
 
