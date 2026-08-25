@@ -1,0 +1,26 @@
+{
+  "title": "Today",
+  "date_range": "Aug 24, 2026 - Aug 24, 2026",
+  "event_count": 3,
+  "events": [
+    {
+      "subject": "Team Standup",
+      "time": "10:00 (30m)",
+      "location": "Conference Room A",
+      "organizer": "Alice Johnson"
+    },
+    {
+      "subject": "Project Review & Planning",
+      "time": "14:30 (1h)",
+      "location": "Building 2, Floor 3",
+      "organizer": "Bob Smith"
+    },
+    {
+      "subject": "All hands meeting",
+      "time": "All day",
+      "location": "",
+      "organizer": "Management"
+    }
+  ],
+  "generated_at_label": "Last updated: 2026-08-24 16:45 UTC"
+}

@@ -1,0 +1,44 @@
+# AI Agent Summary
+
+This repository centers on the Xibo media sync workflow.
+
+## Primary entry point
+
+- `scripts/sync_xibo.py` is the main script to run.
+- The sync logic now lives in `scripts/xibo_sync/`, but this script remains the entry point.
+- For any Python or pip command, run from `scripts/` and activate `scripts/.venv` first:
+  `.\.venv\Scripts\Activate.ps1`.
+
+## Where to look first
+
+- `docs/` contains the user and technical documentation for the sync tool.
+- `docs/USER_GUIDE.md` explains setup and day-to-day usage.
+- `docs/TECHNICAL.md` explains the repository layout, sync flow, and extension points.
+
+## Xibo installation used here
+
+- The bundled Xibo CMS installation lives in `xibo/xibo-docker-4.4.2/`.
+- Use `xibo/xibo-docker-4.4.2/docker-compose.yml` for the Docker-based CMS stack.
+- The Xibo API specification is in `xibo/docs/swagger.json`.
+- Calendar snapshots are uploaded with `scripts/sync_xibo.py --upload-calendar`; the newest
+	`office_calendar_events_yyyy-MM-dd_HH-mm-ss.json` file is selected and replaces the target DataSet.
+
+## Player reference
+
+- `xibo/xibo-player/` contains notes for the open source Xibo player.
+- The player runs on Electron and has a separate Arexibo option.
+- Current local notes indicate Arexibo is not suitable for offline or non-internet setups.
+
+## What to keep aligned
+
+- Keep the root `Readme.md` short and user-facing.
+- Keep this file updated when the main script, Docker path, API spec, or player instructions change.
+
+## Testing
+
+- Automated tests live under `scripts/tests/unit/` (isolated logic) and `scripts/tests/integration/`
+  (multiple modules cooperating, e.g. `app.py` orchestration against a mocked `XiboClient`).
+- Every new piece of custom logic added to `scripts/xibo_sync/` must ship with a test: unit test in
+  the matching module's test file, plus an integration test if the change wires modules together.
+- Run tests with `python -m pytest` from `scripts/` after activating `scripts/.venv` (install `scripts/requirements-dev.txt` first). See
+  the "Testing" section in `docs/TECHNICAL.md` for full details.

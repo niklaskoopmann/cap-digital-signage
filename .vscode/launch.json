@@ -1,0 +1,24 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "sync_xibo.py with Arguments",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/sync_xibo.py",
+            "console": "integratedTerminal",
+            "args": "${command:pickArgs}"
+        },
+                {
+            "name": "sync_xibo.py --delete -y",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/sync_xibo.py",
+            "console": "integratedTerminal",
+            "args": "--delete -y"
+        }
+    ]
+}

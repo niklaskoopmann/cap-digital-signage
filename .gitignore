@@ -10,3 +10,7 @@ __pycache__/
 *.jpg
 *.mp4
 *.mov
+**/__pycache__/
+docs/PLAN.md
+docs/CHANGES.md
+scripts/calendar_packages/*

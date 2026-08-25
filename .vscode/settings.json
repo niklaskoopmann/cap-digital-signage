@@ -1,0 +1,14 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^cd /c/Code/cap-digital-signage/scripts ; python _parity_check_calendar\\.py$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "Get-Command": true
+    },
+    "python.testing.pytestArgs": [
+        "scripts"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true
+}
