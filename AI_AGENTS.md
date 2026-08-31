@@ -33,6 +33,9 @@ This repository centers on the Xibo media sync workflow.
 
 - Keep the root `Readme.md` short and user-facing.
 - Keep this file updated when the main script, Docker path, API spec, or player instructions change.
+- In Xibo 4.4, publish media-created layouts after every final mutation, including ownership tags,
+  and re-resolve the canonical ID before assigning or showing the layout. Cleanup may discard a
+  locked draft only when its exact `xibo-sync-media:<mediaId>` ownership tag proves it is sync-owned.
 
 ## Testing
 

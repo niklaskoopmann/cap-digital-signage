@@ -2,7 +2,7 @@
 name: Digital Signage Code Reviewer
 description: Use after Digital Signage Coder implementation and Digital Signage Tester validation to review code quality, test relevance, PLAN.md coverage, and acceptance criteria for cap-digital-signage changes; callable by users and other agents.
 argument-hint: Completed code and tests to review against docs/PLAN.md.
-tools: [read, search, agent]
+tools: [vscode, read, agent, ms-python.python/getPythonEnvironmentInfo, ms-python.python/getPythonExecutableCommand, ms-python.python/installPythonPackage, ms-python.python/configurePythonEnvironment, edit, search, todo]
 agents: [Digital Signage Coder, Digital Signage Tester]
 user-invocable: true
 ---

@@ -2,7 +2,7 @@
 name: Digital Signage Planner
 description: Plan new features, change requests, and bug fixes for the cap-digital-signage workspace by producing an implementation-ready PLAN.md for another agent.
 argument-hint: A feature request, change request, or bug report that needs an implementation plan for another agent.
-tools: [read, search, edit, agent]
+tools: [vscode, execute/runTests, execute/testFailure, read, agent, ms-azuretools.vscode-containers/containerToolsConfig, ms-python.python/getPythonEnvironmentInfo, ms-python.python/getPythonExecutableCommand, edit, search, web, browser, vscodeGeneral/runTests, vscodeGeneral/testFailure, 'pylance-mcp-server/*', todo]
 agents: [Digital Signage Plan Reviewer]
 handoffs:
   - label: Start Implementation
