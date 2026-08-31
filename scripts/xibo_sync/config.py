@@ -176,6 +176,6 @@ def load_config() -> Config:
             "templates/calendar",
         ).strip()),
         calendar_auto_publish=getenv_bool("CALENDAR_AUTO_PUBLISH", True),
-        calendar_timezone=os.getenv("CALENDAR_TIMEZONE", "UTC").strip() or "UTC",
+        calendar_timezone=os.getenv("CALENDAR_TIMEZONE", "Europe/Berlin").strip() or "Europe/Berlin",
         calendar_package_retention_days=getenv_int("CALENDAR_PACKAGE_RETENTION_DAYS", 30),
     )

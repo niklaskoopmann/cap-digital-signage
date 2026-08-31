@@ -120,8 +120,8 @@ def config_wizard(env_path: Path) -> None:
     )
     env_data["CALENDAR_TIMEZONE"] = prompt_edit(
         "CALENDAR_TIMEZONE",
-        get("CALENDAR_TIMEZONE", "UTC"),
-        help_text="IANA timezone name, e.g. Europe/Amsterdam",
+        get("CALENDAR_TIMEZONE", "Europe/Berlin"),
+        help_text="IANA timezone name for event filtering and display labels (e.g. Europe/Berlin, Europe/Amsterdam). Daylight saving transitions are handled automatically.",
     )
     env_data["CALENDAR_PACKAGE_RETENTION_DAYS"] = prompt_edit(
         "CALENDAR_PACKAGE_RETENTION_DAYS",

@@ -236,3 +236,79 @@ def test_run_calendar_html_upload_fails_fast_when_view_config_missing(
 
     assert exit_code == 2
     assert "client" not in fake_holder
+
+
+def test_run_calendar_html_upload_berlin_timezone_renders_local_times(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Generated HTML with Berlin timezone should show Berlin-local times for UTC events.
+    
+    UTC event at 2026-08-25T12:00:00 should display as 14:00 in Berlin summer time (CEST).
+    """
+    import zipfile
+    
+    # Create a calendar snapshot with UTC events
+    calendar_dir = tmp_path / "calendar"
+    calendar_dir.mkdir()
+    
+    events = [
+        _make_event("Summer meeting", "2026-08-25T12:00:00", "2026-08-25T13:00:00"),
+    ]
+    snapshot = calendar_dir / "office_calendar_events_2026-08-25_10-00-00.json"
+    snapshot.write_text(json.dumps({"value": events}), encoding="utf-8")
+    
+    # Use the bundled template directory
+    template_dir = Path(__file__).parent.parent.parent / "templates" / "calendar"
+    if not template_dir.exists():
+        pytest.skip(f"Bundled template directory not found: {template_dir}")
+    
+    # Setup with Berlin timezone explicitly
+    monkeypatch.setenv("CMS_BASE_URL", "http://192.168.1.1")
+    monkeypatch.setenv("AUTH_MODE", "none")
+    monkeypatch.setenv("LOCAL_MEDIA_DIR", "../media")
+    monkeypatch.setenv("CALENDAR_JSON_PATH", str(calendar_dir))
+    monkeypatch.setenv("CALENDAR_ENABLE_HTML", "true")
+    monkeypatch.setenv("CALENDAR_HTML_VIEWS", "today")
+    monkeypatch.setenv("CALENDAR_TEMPLATE_DIR", str(template_dir))
+    monkeypatch.setenv("CALENDAR_AUTO_PUBLISH", "true")
+    monkeypatch.setenv("CALENDAR_TIMEZONE", "Europe/Berlin")  # Berlin timezone
+    monkeypatch.setenv("CALENDAR_PACKAGE_RETENTION_DAYS", "30")
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.delenv("DISPLAY_GROUP_ID", raising=False)
+    monkeypatch.delenv("CALENDAR_DATASET_CODE", raising=False)
+    monkeypatch.delenv("TRIGGER_COLLECTNOW_ON_CHANGES", raising=False)
+    
+    cfg = load_config()
+    cfg.calendar_json_path = calendar_dir
+    
+    packages_dir = tmp_path / "packages"
+    packages_dir.mkdir()
+
+    fake_holder: dict[str, FakeXiboClient] = {}
+
+    def _factory(base_url: str, verify_tls: bool, timeout: int) -> FakeXiboClient:
+        client = FakeXiboClient(base_url, verify_tls, timeout)
+        fake_holder["client"] = client
+        return client
+
+    monkeypatch.setattr(app, "XiboClient", _factory)
+
+    exit_code = app.run_calendar_html_upload(cfg, packages_dir)
+
+    assert exit_code == 0
+    
+    # Find the generated .htz package for today
+    # Packages are written to <scripts_dir>/calendar_packages/ by default
+    htz_files = list((packages_dir / "calendar_packages").glob("calendar_today_*.htz"))
+    assert len(htz_files) == 1, f"Expected 1 .htz file, found {len(htz_files)} in {packages_dir / 'calendar_packages'}"
+    
+    # Extract and read the HTML from the package
+    with zipfile.ZipFile(htz_files[0]) as archive:
+        html_content = archive.read("index.html").decode("utf-8")
+    
+    # Verify the HTML contains Berlin-local time (14:00, not UTC 12:00)
+    # The event should show 14:00 because CEST is UTC+2
+    assert "14:00" in html_content, f"Expected Berlin time 14:00 in HTML, got: {html_content}"
+    # Should NOT show the UTC time
+    assert "12:00" not in html_content or "Summer meeting" not in html_content.split("12:00")[0] if "12:00" in html_content else True
