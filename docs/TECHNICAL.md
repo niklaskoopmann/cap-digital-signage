@@ -45,6 +45,8 @@ Both scripts load environment variables from `scripts/.env`.
 - `MEDIA_EXTENSIONS`: File extensions that count as media.
 - `COMPARE_MODE`: `filename` or `hash`.
 - `MANAGED_TAG`: Tag used to mark media managed by the sync script.
+- `DELETE_LAYOUT_WITH_MEDIA`: Default `false`; when enabled, deletes only layouts carrying the
+  exact `xibo-sync-media:<mediaId>` ownership tag during managed media deletion.
 - `ONLY_DELETE_MANAGED_TAG`: If `true`, deletes are restricted to tagged items.
 - `MANAGED_FOLDER_ID`: Optional Xibo folderId filter.
 - `UPLOAD_NEW_LOCAL`: If `true`, uploads new local items.
@@ -64,8 +66,10 @@ behaviors are controlled via environment variables (disabled by default unless y
   returned layout metadata is used for follow-up steps.
 - `ASSIGN_LAYOUT_ON_CHANGE`: When `true`, created layouts are assigned to `DISPLAY_GROUP_ID` using
   `/displaygroup/{id}/layout/assign` so they become part of the group's schedule.
-- `PUBLISH_ON_CHANGE`: When `true`, the script will call `/layout/publish/{id}` to publish the layout
-  so players can play the new version immediately.
+- `PUBLISH_ON_CHANGE`: Retained for compatibility, but publication is mandatory for newly edited
+  auto-created layouts. The workflow publishes after setting the background, tags the canonical
+  layout, then publishes again before assignment or immediate-show actions so the final tag draft
+  is released.
 - `IMMEDIATE_SHOW_ON_CHANGE`: When `true`, the script attempts to send a change-layout action
   (`/displaygroup/{id}/action/changeLayout`) which instructs online players in the group to switch
   to the provided layout immediately. This will interrupt the current schedule while the action is
@@ -79,8 +83,14 @@ Notes:
   `/layout/discard/{layoutId}` and retries checkout before setting the background. Once background
   is set, the draft is intentionally left as-is - discarding at that point abandons the edit and
   previously left the layout in a broken, still-locked state that blocked deleting it from the CMS
-  GUI. `publish_layout()` is what finalizes (and releases) the draft afterward. Publish happens
-  before tagging, since Xibo rejects tag changes on Draft layouts. If you need templated layouts or
+  GUI. `publish_layout()` is what finalizes (and releases) the draft afterward. Publication is
+  mandatory both before tagging and again after tagging, because Xibo 4.4 can create a new draft
+  for the tag mutation. Each publish is followed by an exact-name resolution of the canonical ID;
+  a failed final publish or resolution stops the run before display-group assignment or
+  immediate-show. The 404 draft-ID fallback resolves by exact name and retries only with a
+  different canonical ID.
+  Media-created layouts receive both `MANAGED_TAG` and `xibo-sync-media:<mediaId>`; the latter is
+  the only layout deletion selector. If you need templated layouts or
   multi-region designs, extend the client helpers to create or modify layouts with templates and
   regions.
 - `collect_now` (already implemented) remains useful: it triggers players to pull new library files.
@@ -199,11 +209,14 @@ layout names by editing the JSON files in `scripts/templates/calendar/views/`:
   `embed=regions,playlists` to find the first region's `regionPlaylist.playlistId`. If the layout
   has no regions, it creates a 1920×1080 frame with `POST /region/{layoutId}` and re-fetches the
   layout. It then calls `POST /playlist/library/assign/{playlistId}` with `media[]={mediaId}`.
-5. **Publish** – `publish_layout()` is called when `CALENDAR_AUTO_PUBLISH=true`.
+5. **Publish** – `publish_layout()` is mandatory after package assignment, regardless of
+  `CALENDAR_AUTO_PUBLISH`, because a successful deployment must release the CMS checkout.
 6. **Re-resolve** – after publish the layout ID is re-fetched by name (Xibo may replace the
    draft with a new published ID).
 7. **Tag** – the layout is tagged with `calendar-html`, `calendar-<view>`, and the date stamp.
-8. **Display group** – optional assignment and immediate-show via the shared `DISPLAY_GROUP_ID`
+8. **Final publish** – the tag mutation is published and the canonical ID is resolved again before
+  any display-group action.
+9. **Display group** – optional assignment and immediate-show via the shared `DISPLAY_GROUP_ID`
    and `IMMEDIATE_SHOW_ON_CHANGE` settings.
 
 > **⚠ CMS verification note**: `assign_html_package_to_layout` uses the
@@ -211,6 +224,23 @@ layout names by editing the JSON files in `scripts/templates/calendar/views/`:
   `POST /region/{layoutId}` → `POST /playlist/library/assign/{playlistId}` path. Verify the
   region/playlist embedding and the `media[]` parameter form against your target CMS version
   before relying on it in production.
+
+### Managed layout cleanup
+
+When `DELETE_LAYOUT_WITH_MEDIA=true`, remote-only media deletion searches layouts using the exact
+ownership tag `xibo-sync-media:<mediaId>`. The script first resolves whether an active draft
+exists. Any active draft blocks cleanup, even when it retains the exact ownership tag: that tag
+identifies the canonical sync-created layout, not the checkout owner. The bundled Xibo schema has
+no reliable checkout-owner field, so the script reports the draft and canonical IDs and retains the
+library media for operator resolution and a safe retry. For an unlocked verified match, cleanup is
+performed in dependency order: schedule events, the configured `DISPLAY_GROUP_ID` assignment (the
+only display group this tool ever assigns layouts to), the layout, then the library item. Xibo
+4.4.2's `GET /displaygroup` response never exposes a layout-membership field (no `layouts`,
+`layout`, or `layoutIds` key, and `embed` has no effect), so there is no supported way to discover
+every group that might contain a layout; cleanup therefore only removes the known,
+sync-made assignment and a layout that was never assigned to that group unassigns as a no-op.
+`--dry-run --delete --yes` performs the lookups and logs the same ordered plan without mutating the
+CMS. Reusable calendar layouts are excluded.
 
 #### Configuration keys
 

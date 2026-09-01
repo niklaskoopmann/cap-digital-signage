@@ -33,6 +33,9 @@ This repository centers on the Xibo media sync workflow.
 
 - Keep the root `Readme.md` short and user-facing.
 - Keep this file updated when the main script, Docker path, API spec, or player instructions change.
+- In Xibo 4.4, publish media-created layouts after every final mutation, including ownership tags,
+  and re-resolve the canonical ID before assigning or showing the layout. Cleanup may discard a
+  locked draft only when its exact `xibo-sync-media:<mediaId>` ownership tag proves it is sync-owned.
 
 ## Testing
 
@@ -42,3 +45,7 @@ This repository centers on the Xibo media sync workflow.
   the matching module's test file, plus an integration test if the change wires modules together.
 - Run tests with `python -m pytest` from `scripts/` after activating `scripts/.venv` (install `scripts/requirements-dev.txt` first). See
   the "Testing" section in `docs/TECHNICAL.md` for full details.
+- The change pipeline is Digital Signage Coder, Digital Signage Tester, Digital Signage Code
+  Reviewer, then Digital Signage System Tester. The final system tester runs non-dry-run,
+  feature-specific checks only against the running local Docker CMS and verifies results through
+  the CMS API; it records live failures in `docs/SYSTEM_TEST_RESULTS.md` for the coder.

@@ -2,8 +2,8 @@
 name: Digital Signage Code Reviewer
 description: Use after Digital Signage Coder implementation and Digital Signage Tester validation to review code quality, test relevance, PLAN.md coverage, and acceptance criteria for cap-digital-signage changes; callable by users and other agents.
 argument-hint: Completed code and tests to review against docs/PLAN.md.
-tools: [read, search, agent]
-agents: [Digital Signage Coder, Digital Signage Tester]
+tools: [vscode, read, agent, ms-python.python/getPythonEnvironmentInfo, ms-python.python/getPythonExecutableCommand, ms-python.python/installPythonPackage, ms-python.python/configurePythonEnvironment, edit, search, todo]
+agents: [Digital Signage Coder, Digital Signage Tester, Digital Signage System Tester]
 user-invocable: true
 ---
 
@@ -69,7 +69,8 @@ You may also be invoked directly by the user to review current workspace changes
 7. Write or update review handoff notes:
    - Documentation handoff: update `docs/CHANGES.md` with the important findings and requested follow-up.
    - Knowledge-store handoff: record durable implementation insights, constraints, and pitfalls in the repository knowledge store (for example under `/memories/repo/`).
-8. If no issues are found, report approval with concise evidence.
+8. If no issues are found, invoke the Digital Signage System Tester for final non-dry-run validation against the local Docker CMS. Treat a system-test failure as a required coder-fix handoff; it must complete the tester and reviewer stages again before another system test.
+9. Report approval with concise evidence only after the system tester passes. If the local CMS is unavailable, report the code-review approval separately and state that final system validation remains blocked.
 
 ## Output Format
 

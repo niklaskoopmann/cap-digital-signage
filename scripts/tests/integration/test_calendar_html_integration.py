@@ -243,19 +243,30 @@ def test_run_calendar_html_upload_berlin_timezone_renders_local_times(
     tmp_path: Path,
 ) -> None:
     """Generated HTML with Berlin timezone should show Berlin-local times for UTC events.
-    
-    UTC event at 2026-08-25T12:00:00 should display as 14:00 in Berlin summer time (CEST).
+
+    Uses today's date (in Berlin time) so the "today" view keeps matching the event
+    regardless of when the suite runs, and derives the expected local time from the
+    UTC event time via zoneinfo instead of assuming a fixed CEST/CET offset.
     """
     import zipfile
-    
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    berlin = ZoneInfo("Europe/Berlin")
+    today_berlin = datetime.now(berlin).date()
+    event_date = today_berlin.isoformat()
+
+    utc_start = datetime.fromisoformat(f"{event_date}T12:00:00").replace(tzinfo=ZoneInfo("UTC"))
+    expected_local_time = utc_start.astimezone(berlin).strftime("%H:%M")
+
     # Create a calendar snapshot with UTC events
     calendar_dir = tmp_path / "calendar"
     calendar_dir.mkdir()
-    
+
     events = [
-        _make_event("Summer meeting", "2026-08-25T12:00:00", "2026-08-25T13:00:00"),
+        _make_event("Summer meeting", f"{event_date}T12:00:00", f"{event_date}T13:00:00"),
     ]
-    snapshot = calendar_dir / "office_calendar_events_2026-08-25_10-00-00.json"
+    snapshot = calendar_dir / f"office_calendar_events_{event_date}_10-00-00.json"
     snapshot.write_text(json.dumps({"value": events}), encoding="utf-8")
     
     # Use the bundled template directory
@@ -307,8 +318,10 @@ def test_run_calendar_html_upload_berlin_timezone_renders_local_times(
     with zipfile.ZipFile(htz_files[0]) as archive:
         html_content = archive.read("index.html").decode("utf-8")
     
-    # Verify the HTML contains Berlin-local time (14:00, not UTC 12:00)
-    # The event should show 14:00 because CEST is UTC+2
-    assert "14:00" in html_content, f"Expected Berlin time 14:00 in HTML, got: {html_content}"
-    # Should NOT show the UTC time
-    assert "12:00" not in html_content or "Summer meeting" not in html_content.split("12:00")[0] if "12:00" in html_content else True
+    # Verify the HTML contains Berlin-local time, not the raw UTC time
+    assert expected_local_time in html_content, (
+        f"Expected Berlin time {expected_local_time} in HTML, got: {html_content}"
+    )
+    utc_time = "12:00"
+    if utc_time != expected_local_time:
+        assert utc_time not in html_content or "Summer meeting" not in html_content.split(utc_time)[0]

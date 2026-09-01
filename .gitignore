@@ -1,5 +1,7 @@
 .venv
 .env
+.env.*
+!.env.example
 scripts/.env
 scripts/secrets.json
 *.log
@@ -13,4 +15,5 @@ __pycache__/
 **/__pycache__/
 docs/PLAN.md
 docs/CHANGES.md
+docs/SYSTEM_TEST_RESULTS.md
 scripts/calendar_packages/*

@@ -21,7 +21,7 @@ The main sync actions are:
 5. Read the media library from Xibo.
 6. Compare local and remote media.
 7. Upload missing files.
-8. Optionally delete remote-only files.
+8. Optionally delete remote-only files and, when explicitly enabled, their sync-owned layouts.
 9. Optionally create/publish/assign layouts for uploaded media and ask players to show them.
 	 - If `CREATE_LAYOUT_PER_UPLOAD=true`, the script will create a full-screen layout for each newly
 		 uploaded media item by creating a stored layout in Xibo and applying the uploaded media as the
@@ -29,8 +29,9 @@ The main sync actions are:
 		 immediately displaying single images on players.
 	 - If `ASSIGN_LAYOUT_ON_CHANGE=true` and `DISPLAY_GROUP_ID` is set, the created layout is assigned
 		 to the group so it enters the group's schedule.
-	 - If `PUBLISH_ON_CHANGE=true`, the layout is published after creation so players see a published
-		 version to play.
+	 - Newly created layouts are published after their background is set and again after tagging.
+		 The canonical layout ID is re-resolved after each publish, and assignment or immediate show
+		 only occurs after the final publication releases the CMS checkout.
 	 - If `IMMEDIATE_SHOW_ON_CHANGE=true`, the script sends a change-layout action to the display
 		 group which is delivered to online players and will make them show the layout immediately.
 
@@ -110,6 +111,23 @@ Deletion behavior is controlled in two places:
 
 If deletion is enabled, the script only deletes remote items that are not present locally. When `ONLY_DELETE_MANAGED_TAG=true`, it further restricts deletes to items managed by this sync tool.
 
+Layout cleanup is separately disabled by default. Preview it before enabling the setting:
+
+```powershell
+\.venv\Scripts\Activate.ps1
+python .\sync_xibo.py --dry-run --delete --yes
+```
+
+With `DELETE_LAYOUT_WITH_MEDIA=true`, only layouts carrying the exact
+`xibo-sync-media:<mediaId>` tag are eligible. The script checks for an active draft before it
+removes schedule events or display-group assignments; an unlocked eligible layout is then
+unassigned, deleted, and followed by media deletion. Layouts with only `MANAGED_TAG`, older
+unmarked layouts, and reusable calendar view layouts remain untouched. If an owned layout has any
+active draft, including one that retains its exact ownership tag, the script reports the draft and
+canonical layout IDs, leaves the media intact, and blocks deletion for a safe retry. The bundled
+Xibo API does not expose a reliable checkout-owner identity, so an operator must resolve the draft
+in Xibo before cleanup can continue.
+
 After each upload, the script checks Xibo's library for the new media item. If Xibo accepts the request but does not show the file as a valid library item, the run stops with an error so unsupported files are not treated as synced.
 
 New uploads are tagged only after that verification passes, and they are tagged again after the upload succeeds. This keeps future delete runs safe because managed media can be recognized even after a restart.
@@ -133,6 +151,8 @@ The most important entries in `scripts/.env` are:
 - `MANAGED_TAG`: protects unrelated Xibo items from deletion.
 - `ONLY_DELETE_MANAGED_TAG`: keep this enabled unless you are sure.
 - `DELETE_REMOTE_NOT_LOCAL`: default answer for the delete question.
+- `DELETE_LAYOUT_WITH_MEDIA`: default `false`; opt in to deleting exact sync-owned layouts with
+	their schedules and display-group assignments.
 - `DISPLAY_GROUP_ID`: optional Xibo display group to refresh after sync.
 - `CALENDAR_JSON_PATH`: calendar snapshot directory or JSON file; relative paths resolve from `scripts/`.
 - `CALENDAR_DATASET_NAME`: target DataSet, default `office_calendar_events`.
@@ -190,7 +210,8 @@ CALENDAR_HTML_VIEWS=today,this_week,next_2_weeks
 # Optional: path to the template directory (defaults to scripts/templates/calendar)
 # CALENDAR_TEMPLATE_DIR=templates/calendar
 
-# Publish layouts automatically after each package upload
+# Edited layouts are always published to release the CMS checkout.
+# This compatibility setting no longer disables publication.
 CALENDAR_AUTO_PUBLISH=true
 
 # IANA timezone for event filtering and time display labels (default: Europe/Berlin).

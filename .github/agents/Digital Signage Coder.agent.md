@@ -2,7 +2,7 @@
 name: Digital Signage Coder
 description: Implement and maintain Python-focused changes for the Xibo media sync workflow with a bias toward best-practice, maintainable code.
 argument-hint: A Python implementation, maintenance, or refactoring task for the Xibo sync workspace.
-agents: [Digital Signage Tester, Digital Signage Code Reviewer]
+agents: [Digital Signage Tester, Digital Signage Code Reviewer, Digital Signage System Tester]
 # tools: ['vscode', 'execute', 'read', 'agent', 'edit', 'search', 'web', 'todo'] # specify the tools this agent can use. If not set, all enabled tools are allowed.
 ---
 
