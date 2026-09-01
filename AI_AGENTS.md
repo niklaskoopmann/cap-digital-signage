@@ -41,11 +41,16 @@ This repository centers on the Xibo media sync workflow.
 
 - Automated tests live under `scripts/tests/unit/` (isolated logic) and `scripts/tests/integration/`
   (multiple modules cooperating, e.g. `app.py` orchestration against a mocked `XiboClient`).
+- Live-CMS system tests live under `scripts/tests/system/`. They are persistent, feature-specific
+  test modules that invoke `sync_xibo.py` without `--dry-run` and query the CMS with their own
+  test client. They must be excluded from the default pytest collection and require an explicit
+  test-only `.env` path (for example, `SYSTEM_TEST_ENV_FILE`) rather than reading `scripts/.env`.
 - Every new piece of custom logic added to `scripts/xibo_sync/` must ship with a test: unit test in
   the matching module's test file, plus an integration test if the change wires modules together.
 - Run tests with `python -m pytest` from `scripts/` after activating `scripts/.venv` (install `scripts/requirements-dev.txt` first). See
   the "Testing" section in `docs/TECHNICAL.md` for full details.
 - The change pipeline is Digital Signage Coder, Digital Signage Tester, Digital Signage Code
   Reviewer, then Digital Signage System Tester. The final system tester runs non-dry-run,
-  feature-specific checks only against the running local Docker CMS and verifies results through
-  the CMS API; it records live failures in `docs/SYSTEM_TEST_RESULTS.md` for the coder.
+  feature-specific checks only against the running local Docker CMS, based on `docs/PLAN.md` and
+  the coder's changes. It verifies results through the CMS API and records live failures in
+  `docs/SYSTEM_TEST_RESULTS.md` for the coder.
