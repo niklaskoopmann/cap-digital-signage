@@ -24,6 +24,18 @@ xiboplayer
 /home/digitalsignage/.config/xiboplayer/electron
 ```
 
+### Shortcuts
+
+Player shortcuts (disabled by default — enable via controls in config.json):
+Key	Requires	Action
+T	controls.keyboard.debugOverlays: true	Toggle timeline overlay
+D	controls.keyboard.debugOverlays: true	Toggle download overlay
+V	controls.keyboard.videoControls: true	Toggle video controls
+→ / PageDown	controls.keyboard.playbackControl: true	Skip to next layout
+← / PageUp	controls.keyboard.playbackControl: true	Go to previous layout
+Space	controls.keyboard.playbackControl: true	Pause / resume playback
+R	controls.keyboard.playbackControl: true	Revert to scheduled layout
+
 ## Arexibo
 
 https://www.xiboplayer.org/players/arexibo
