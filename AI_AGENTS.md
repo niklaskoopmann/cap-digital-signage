@@ -45,3 +45,7 @@ This repository centers on the Xibo media sync workflow.
   the matching module's test file, plus an integration test if the change wires modules together.
 - Run tests with `python -m pytest` from `scripts/` after activating `scripts/.venv` (install `scripts/requirements-dev.txt` first). See
   the "Testing" section in `docs/TECHNICAL.md` for full details.
+- The change pipeline is Digital Signage Coder, Digital Signage Tester, Digital Signage Code
+  Reviewer, then Digital Signage System Tester. The final system tester runs non-dry-run,
+  feature-specific checks only against the running local Docker CMS and verifies results through
+  the CMS API; it records live failures in `docs/SYSTEM_TEST_RESULTS.md` for the coder.
