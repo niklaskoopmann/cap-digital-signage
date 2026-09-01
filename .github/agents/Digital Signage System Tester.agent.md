@@ -4,7 +4,7 @@ description: Use after the Digital Signage Code Reviewer approves a completed ca
 argument-hint: An approved implementation to validate against docs/PLAN.md using the local Docker Xibo CMS.
 tools: [read, search, edit, execute]
 agents: [Digital Signage Coder]
-user-invocable: false
+user-invocable: true
 ---
 
 # Digital Signage System Tester
@@ -24,6 +24,26 @@ has approved the implementation against `docs/PLAN.md`.
   the acceptance criteria.
 - On failure, write a complete report to `docs/SYSTEM_TEST_RESULTS.md` before handing the issue
   to the Digital Signage Coder.
+
+## Local Environment Facts
+
+- Docker is only reachable through WSL, not from the PowerShell host directly. Use
+  `wsl docker compose -f /mnt/c/Code/cap-digital-signage/xibo/xibo-docker-4.4.2/docker-compose.yml ps`.
+  A bare `docker compose ps` fails with `open //./pipe/docker_engine: The system cannot find the file specified`.
+- The CMS runs at `http://localhost` (container `xibo-docker-442-cms-web-1`, Xibo 4.4.2).
+  A bodyless `POST /api/authorize/access_token` returning HTTP 400 is a valid liveness signal.
+- CMS credentials come from `scripts/.env` (`CMS_CLIENT_ID` / `CMS_CLIENT_SECRET`, `AUTH_MODE=oauth`).
+  Never echo the secret into chat output or a report.
+- `load_dotenv` does not override existing process environment variables, so scenario isolation is
+  done by exporting overrides (`MANAGED_TAG`, `LOCAL_MEDIA_DIR`, feature flags) before launching
+  `sync_xibo.py` in a subprocess.
+- Set `PYTHONIOENCODING=utf-8` and `PYTHONUTF8=1` for subprocess runs; the rich UI crashes with
+  `UnicodeEncodeError` under the default cp1252 code page when output is piped.
+- `main()` rewrites `DELETE_REMOTE_NOT_LOCAL` in `scripts/.env`. Back the file up before a run and
+  restore it afterwards.
+- `displayGroupId=2` (`Local Displays`) is the only display group and has no live player attached,
+  so `IMMEDIATE_SHOW_ON_CHANGE=true` is safe and should be used to exercise the immediate-show path.
+- Local media fixtures can be copied from `media/*.jpg`.
 
 ## Preconditions And Safety
 

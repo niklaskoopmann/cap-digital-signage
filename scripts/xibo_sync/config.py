@@ -28,6 +28,7 @@ class Config:
     compare_mode: str
 
     managed_tag: str
+    delete_layout_with_media: bool
     only_delete_managed_tag: bool
     managed_folder_id: Optional[str]
 
@@ -147,6 +148,7 @@ def load_config() -> Config:
         compare_mode=compare_mode,
 
         managed_tag=os.getenv("MANAGED_TAG", "xibo-sync").strip(),
+        delete_layout_with_media=getenv_bool("DELETE_LAYOUT_WITH_MEDIA", False),
         only_delete_managed_tag=getenv_bool("ONLY_DELETE_MANAGED_TAG", True),
         managed_folder_id=os.getenv("MANAGED_FOLDER_ID", "").strip() or None,
 

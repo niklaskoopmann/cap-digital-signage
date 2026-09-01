@@ -21,6 +21,13 @@ from rich.progress import (
 
 from .ui import console
 
+MEDIA_LAYOUT_TAG_PREFIX = "xibo-sync-media:"
+
+
+def media_layout_ownership_tag(media_id: str) -> str:
+    """Return the exact ownership tag used for a media-created layout."""
+    return f"{MEDIA_LAYOUT_TAG_PREFIX}{media_id}"
+
 
 def _upload_media_id(created: dict) -> str:
     """Extract a media ID from the response shapes returned by Xibo uploads."""
@@ -589,6 +596,284 @@ class XiboClient:
         if not r.ok:
             raise RuntimeError(f"Delete mediaId={media_id} failed ({r.status_code}): {r.text}")
 
+    @staticmethod
+    def _tag_values(resource: dict) -> set[str]:
+        tags = resource.get("tags", resource.get("tag", []))
+        if isinstance(tags, str):
+            return {value.strip() for value in tags.split(",") if value.strip()}
+        if isinstance(tags, dict):
+            tags = [tags]
+        if isinstance(tags, list):
+            values = set()
+            for tag in tags:
+                if isinstance(tag, dict):
+                    value = tag.get("tag") or tag.get("name") or tag.get("value")
+                else:
+                    value = tag
+                if value:
+                    values.add(str(value).strip())
+            return values
+        return set()
+
+    def list_layouts_by_ownership_tag(self, ownership_tag: str) -> List[dict]:
+        """Find layouts carrying an exact sync ownership tag."""
+        layouts: List[dict] = []
+        start = 0
+        while True:
+            params = {"tags": ownership_tag, "embed": "tags", "length": 1000}
+            if start:
+                params["start"] = start
+            r = self._request("GET", self._api_url("/layout"), params=params)
+            if not r.ok:
+                raise RuntimeError(f"Layout lookup for tag={ownership_tag!r} failed ({r.status_code}): {r.text}")
+            data = self._extract_data(r.json())
+            if isinstance(data, dict):
+                data = data.get("layouts", data.get("rows", [data]))
+            if not isinstance(data, list):
+                raise RuntimeError(f"Unexpected layout lookup response for tag={ownership_tag!r}: {r.text}")
+            layouts.extend(layout for layout in data if isinstance(layout, dict) and ownership_tag in self._tag_values(layout))
+            if len(data) < 1000:
+                return layouts
+            start += 1000
+
+    @staticmethod
+    def _schedule_layout_id(event: dict) -> Optional[str]:
+        """Extract a layout reference only when the event identifies one safely."""
+        for key in ("layoutId", "layout_id", "campaignId"):
+            if event.get(key) not in (None, ""):
+                return str(event[key])
+        for key in ("layout", "campaign"):
+            nested = event.get(key)
+            if isinstance(nested, dict):
+                found = XiboClient._schedule_layout_id(nested)
+                if found:
+                    return found
+        return None
+
+    @staticmethod
+    def _schedule_campaign_id(event: dict) -> Optional[str]:
+        if event.get("campaignId") not in (None, ""):
+            return str(event["campaignId"])
+        campaign = event.get("campaign")
+        if isinstance(campaign, dict) and campaign.get("campaignId") not in (None, ""):
+            return str(campaign["campaignId"])
+        return None
+
+    @staticmethod
+    def _explicit_schedule_layout_id(event: dict) -> Optional[str]:
+        for key in ("layoutId", "layout_id"):
+            if event.get(key) not in (None, ""):
+                return str(event[key])
+        layout = event.get("layout")
+        if isinstance(layout, dict):
+            value = layout.get("layoutId") or layout.get("id")
+            if value not in (None, ""):
+                return str(value)
+        return None
+
+    def list_schedule_events_for_layout(self, layout_id: str, campaign_id: Optional[str] = None) -> List[dict]:
+        """List schedule events whose explicit layout reference matches ``layout_id``."""
+        if not campaign_id:
+            raise RuntimeError(f"Cannot find schedule events for layoutId={layout_id}: missing campaignId")
+        events: List[dict] = []
+        start = 0
+        while True:
+            params = {"campaignId": campaign_id, "eventTypeId": 1, "length": 1000}
+            if start:
+                params["start"] = start
+            r = self._request("GET", self._api_url("/schedule"), params=params)
+            if not r.ok:
+                raise RuntimeError(f"Schedule lookup for layoutId={layout_id} failed ({r.status_code}): {r.text}")
+            data = self._extract_data(r.json())
+            if isinstance(data, dict):
+                data = data.get("schedule", data.get("events", data.get("rows", [data])))
+            if not isinstance(data, list):
+                raise RuntimeError(f"Unexpected schedule response for layoutId={layout_id}: {r.text}")
+            events.extend(
+                event for event in data
+                if isinstance(event, dict)
+                and self._schedule_campaign_id(event) == str(campaign_id)
+                and self._explicit_schedule_layout_id(event) == str(layout_id)
+            )
+            if len(data) < 1000:
+                return events
+            start += 1000
+
+    def delete_schedule_event(self, event_id: str, dry_run: bool = False) -> None:
+        """Delete one schedule event, honoring dry-run mode."""
+        logging.info("Deleting schedule eventId=%s ...", event_id)
+        if dry_run:
+            logging.info("[DRY_RUN] Would delete schedule eventId=%s", event_id)
+            return
+        r = self._request("DELETE", self._api_url(f"/schedule/{event_id}"))
+        if not r.ok:
+            raise RuntimeError(f"Delete schedule eventId={event_id} failed ({r.status_code}): {r.text}")
+
+    def unassign_layout_from_known_displaygroups(
+        self, display_group_ids: List[str], layout_id: str, dry_run: bool = False
+    ) -> None:
+        """Unassign a layout from the display group(s) this sync tool itself manages.
+
+        Xibo 4.4.2's ``GET /displaygroup`` response never exposes a layout
+        membership field (no ``layouts``/``layout``/``layoutIds`` key, and
+        ``embed=layouts`` has no effect), so there is no supported way to
+        discover *every* display group containing a layout. This sync tool
+        only ever assigns layouts to the configured ``DISPLAY_GROUP_ID``
+        (see ``assign_layouts_to_displaygroup``), so cleanup only needs to
+        remove that same, known assignment. Unassigning a layout that was
+        never assigned to a group is a no-op success.
+        """
+        for display_group_id in display_group_ids:
+            if not display_group_id:
+                continue
+            self.unassign_layout_from_displaygroup(display_group_id, layout_id, dry_run=dry_run)
+
+    def unassign_layout_from_displaygroup(self, display_group_id: str, layout_id: str, dry_run: bool = False) -> None:
+        """Remove one layout from a display group, honoring dry-run mode.
+
+        A 404 response means the layout was already not assigned to this
+        group, which is treated as a successful no-op rather than an error.
+        """
+        logging.info("Unassigning layoutId=%s from displayGroupId=%s ...", layout_id, display_group_id)
+        if dry_run:
+            logging.info("[DRY_RUN] Would unassign layoutId=%s from displayGroupId=%s", layout_id, display_group_id)
+            return
+        r = self._request(
+            "POST",
+            self._api_url(f"/displaygroup/{display_group_id}/layout/unassign"),
+            data=[("layoutId[]", str(layout_id))],
+        )
+        if r.status_code == 404:
+            logging.info(
+                "layoutId=%s was already not assigned to displayGroupId=%s", layout_id, display_group_id
+            )
+            return
+        if not r.ok:
+            raise RuntimeError(
+                f"Unassign layoutId={layout_id} from displayGroupId={display_group_id} failed "
+                f"({r.status_code}): {r.text}"
+            )
+
+    def delete_layout(self, layout_id: str, dry_run: bool = False) -> None:
+        """Delete one layout, honoring dry-run mode."""
+        logging.info("Deleting layoutId=%s ...", layout_id)
+        if dry_run:
+            logging.info("[DRY_RUN] Would delete layoutId=%s", layout_id)
+            return
+        r = self._request("DELETE", self._api_url(f"/layout/{layout_id}"))
+        if not r.ok:
+            raise RuntimeError(f"Delete layoutId={layout_id} failed ({r.status_code}): {r.text}")
+
+
+    @staticmethod
+    def _is_draft_layout(layout: dict) -> bool:
+        status = layout.get("publishedStatusId")
+        if str(status) == "2":
+            return True
+        return str(layout.get("publishedStatus") or "").strip().lower() == "draft"
+
+    def _list_drafts_for_layout(self, layout_id: str) -> List[dict]:
+        """Return draft records whose parent is ``layout_id`` with their tags."""
+        r = self._request(
+            "GET",
+            self._api_url("/layout"),
+            params={
+                "parentId": layout_id,
+                "showDrafts": 1,
+                "publishedStatusId": 2,
+                "embed": "tags",
+                "length": 1000,
+            },
+        )
+        if not r.ok:
+            raise RuntimeError(f"Draft lookup for layoutId={layout_id} failed ({r.status_code}): {r.text}")
+        data = self._extract_data(r.json())
+        if isinstance(data, dict):
+            data = data.get("layouts", data.get("rows", [data]))
+        if not isinstance(data, list):
+            raise RuntimeError(f"Unexpected draft lookup response for layoutId={layout_id}: {r.text}")
+        return [draft for draft in data if isinstance(draft, dict) and self._is_draft_layout(draft)]
+
+    def discard_layout_draft(self, draft_layout_id: str, dry_run: bool = False) -> None:
+        """Discard one verified draft, restoring its published parent layout."""
+        logging.info("Discarding verified draft layoutId=%s ...", draft_layout_id)
+        if dry_run:
+            logging.info("[DRY_RUN] Would discard verified draft layoutId=%s", draft_layout_id)
+            return
+        r = self._request("PUT", self._api_url(f"/layout/discard/{draft_layout_id}"))
+        if not r.ok:
+            raise RuntimeError(f"Discard draft layoutId={draft_layout_id} failed ({r.status_code}): {r.text}")
+
+    def _resolve_layout_for_safe_deletion(self, layout: dict, ownership_tag: str) -> str:
+        """Return the canonical layout ID, refusing cleanup while a draft exists."""
+        source_id = str(layout.get("layoutId") or layout.get("id") or "")
+        if not source_id:
+            raise RuntimeError(f"Cannot resolve managed layout draft: missing layoutId in {layout}")
+
+        if self._is_draft_layout(layout):
+            parent_id = str(layout.get("parentId") or "")
+            if not parent_id or parent_id == source_id:
+                raise RuntimeError(
+                    f"Cannot safely recover locked layoutId={source_id}: draft has no canonical parentId; "
+                    f"ownershipTag={ownership_tag!r}. Retain media and resolve it in Xibo."
+                )
+            raise RuntimeError(
+                f"Cannot safely clean canonical layoutId={parent_id} while active draft layoutId={source_id} exists: "
+                "the Xibo API does not expose a reliable checkout owner. Retain media and resolve the draft in Xibo."
+            )
+
+        drafts = self._list_drafts_for_layout(source_id)
+        if not drafts:
+            return source_id
+
+        draft_ids = [str(draft.get("layoutId") or draft.get("id") or "?") for draft in drafts]
+        raise RuntimeError(
+            f"Cannot safely clean canonical layoutId={source_id} while active draft layoutId(s)={draft_ids} exist: "
+            "the Xibo API does not expose a reliable checkout owner. Retain media and resolve the draft in Xibo."
+        )
+
+    def cleanup_layout_for_media(
+        self,
+        layout: dict,
+        media_id: str,
+        ownership_tag: str,
+        display_group_ids: Optional[List[str]] = None,
+        dry_run: bool = False,
+    ) -> None:
+        """Remove one verified owned layout and its dependencies in order.
+
+        An active draft always blocks cleanup because the bundled Xibo API does
+        not expose a reliable checkout-owner identity. This leaves the media
+        intact for an operator-assisted retry without risking another user's work.
+
+        ``display_group_ids`` should be the display group(s) this sync tool is
+        configured to assign layouts to; Xibo 4.4.2 exposes no API to discover
+        every group containing a layout, so only known, sync-made assignments
+        are unassigned (see ``unassign_layout_from_known_displaygroups``).
+        """
+        layout_id = str(layout.get("layoutId") or layout.get("id") or "")
+        if not layout_id:
+            raise RuntimeError(f"Managed layout cleanup for mediaId={media_id} has no layoutId: {layout}")
+        if ownership_tag not in self._tag_values(layout):
+            raise RuntimeError(
+                f"Refusing layoutId={layout_id} cleanup for mediaId={media_id}: ownership tag {ownership_tag!r} is absent"
+            )
+
+        canonical_layout_id = self._resolve_layout_for_safe_deletion(layout, ownership_tag)
+        campaign_id = layout.get("campaignId") or layout.get("layoutCampaignId")
+        events = self.list_schedule_events_for_layout(canonical_layout_id, str(campaign_id) if campaign_id else None)
+        for event in events:
+            event_id = str(event.get("eventId") or event.get("scheduleId") or event.get("id") or "")
+            if not event_id:
+                raise RuntimeError(f"Managed layout cleanup layoutId={canonical_layout_id} found schedule event without an ID: {event}")
+            self.delete_schedule_event(event_id, dry_run=dry_run)
+
+        self.unassign_layout_from_known_displaygroups(
+            display_group_ids or [], canonical_layout_id, dry_run=dry_run
+        )
+
+        self.delete_layout(canonical_layout_id, dry_run=dry_run)
+
     def collect_now(self, display_group_id: str, dry_run: bool) -> None:
         """Trigger a player refresh for the configured display group.
 
@@ -818,28 +1103,34 @@ class XiboClient:
 
         # Normalize to a single dict representing the created layout when possible.
         if isinstance(data, list) and data:
-            return data[0]
+            if isinstance(data[0], dict):
+                return {**payload, **data[0]}
+            return payload
         if isinstance(data, dict):
             return data
         return payload
 
     def get_layout_by_name(self, name: str) -> Optional[dict]:
-        """Search for a layout by (partial) name and return the first match.
-
-        Uses GET /layout?layout=<name> which supports partial matching.
-        """
+        """Search for a layout by name and return an exact, unambiguous match."""
         if not name:
             return None
 
-        r = self._request("GET", self._api_url("/layout"), params={"layout": name, "length": 1})
+        r = self._request("GET", self._api_url("/layout"), params={"layout": name, "length": 1000})
         if not r.ok:
             raise RuntimeError(f"Layout search failed ({r.status_code}): {r.text}")
 
         data = self._extract_data(r.json())
-        if isinstance(data, list) and data:
-            return data[0]
         if isinstance(data, dict):
-            return data
+            data = data.get("layouts", data.get("rows", [data]))
+        if isinstance(data, list):
+            matches = [
+                item for item in data
+                if isinstance(item, dict)
+                and str(item.get("name") or item.get("layout") or "") == name
+            ]
+            if len(matches) > 1:
+                raise RuntimeError(f"Layout search for exact name {name!r} was ambiguous ({len(matches)} matches)")
+            return matches[0] if matches else None
         return None
 
     def get_draft_layout_id(self, layout_id: str) -> Optional[str]:
@@ -852,6 +1143,22 @@ class XiboClient:
         if not r.ok:
             return None
         return _layout_id_from_payload(self._extract_data(r.json())) or None
+
+    def get_layout_by_id(self, layout_id: str) -> Optional[dict]:
+        """Fetch one layout by ID, including drafts and tags, or ``None`` if missing."""
+        r = self._request(
+            "GET",
+            self._api_url("/layout"),
+            params={"layoutId": layout_id, "showDrafts": 1, "embed": "tags", "length": 1},
+        )
+        if not r.ok:
+            return None
+        data = self._extract_data(r.json())
+        if isinstance(data, dict):
+            data = data.get("layouts", data.get("rows", [data]))
+        if isinstance(data, list) and data and isinstance(data[0], dict):
+            return data[0]
+        return None
 
     def publish_layout(self, layout_id: str, publish_now: bool = True, dry_run: bool = False) -> None:
         """Publish a layout so that players can play the new version.
@@ -1107,11 +1414,12 @@ class XiboClient:
         2. Find or create the named layout.
         3. Check the layout out for editing when needed.
         4. Assign the uploaded package to the layout's first region playlist.
-        5. Publish the layout (when *publish* is ``True``).
+        5. Publish the layout after package assignment.
         6. Re-resolve the layout ID by name after publish (Xibo may renumber it).
         7. Tag the layout with *tags*.
-        8. Assign the layout to the display group (when *assign_to_display_group_id* is set).
-        9. Change the active layout on the display group (when *immediate_show* is ``True``).
+        8. Publish and re-resolve again because tags can create a draft in Xibo 4.4.
+        9. Assign the layout to the display group (when *assign_to_display_group_id* is set).
+        10. Change the active layout on the display group (when *immediate_show* is ``True``).
 
         Args:
             layout_name: Display name of the target layout.
@@ -1208,41 +1516,43 @@ class XiboClient:
         # Step 4: Assign package to layout's first region playlist
         self.assign_html_package_to_layout(layout_id, media_id, dry_run=False)
 
-        # Step 5: Publish
-        if publish:
-            try:
-                self.publish_layout(layout_id, dry_run=False)
-            except Exception as e:
-                logging.warning("Publish failed for layoutId=%s: %s", layout_id, e)
-                found = self.get_layout_by_name(layout_name)
-                if isinstance(found, dict):
-                    found_id = str(found.get("layoutId") or found.get("id") or "")
-                    if found_id and found_id != layout_id:
-                        logging.info("Retrying publish with layoutId=%s (found by name)", found_id)
-                        self.publish_layout(found_id, dry_run=False)
-                        layout_id = found_id
+        # Step 5: Publish is mandatory because the edit must release its CMS checkout.
+        if not publish:
+            logging.info("Publishing calendar layoutId=%s despite publish=False; edited layouts must be unlocked.", layout_id)
+        self.publish_layout(layout_id, dry_run=False)
 
-            # Step 6: Re-resolve layout ID after publish
-            current = self.get_layout_by_name(layout_name)
-            if isinstance(current, dict):
-                current_id = str(current.get("layoutId") or current.get("id") or "")
-                if current_id and current_id != layout_id:
-                    logging.info("Layout id changed after publish: %s -> %s", layout_id, current_id)
-                    layout_id = current_id
+        # Step 6: Re-resolve layout ID after publish
+        current = self.get_layout_by_name(layout_name)
+        if not isinstance(current, dict):
+            raise RuntimeError(f"Published calendar layout {layout_name!r} could not be resolved")
+        current_id = str(current.get("layoutId") or current.get("id") or "")
+        if not current_id:
+            raise RuntimeError(f"Published calendar layout {layout_name!r} has no layoutId")
+        logging.info("Resolved published calendar layoutId=%s (was %s)", current_id, layout_id)
+        layout_id = current_id
 
-        # Step 7: Tag the layout
-        try:
-            self.tag_layout(layout_id, tags, dry_run=False)
-        except Exception as e:
-            logging.warning("Failed to tag layoutId=%s: %s", layout_id, e)
+        # Step 7: Tagging is part of a successful deployment contract.
+        self.tag_layout(layout_id, tags, dry_run=False)
 
-        # Step 8: Assign to display group
+        # Step 8: A tag can itself create a new draft/lock. Finalize it before
+        # handing the layout to a display group or immediate-show action.
+        self.publish_layout(layout_id, dry_run=False)
+        current = self.get_layout_by_name(layout_name)
+        if not isinstance(current, dict):
+            raise RuntimeError(f"Final-published calendar layout {layout_name!r} could not be resolved")
+        current_id = str(current.get("layoutId") or current.get("id") or "")
+        if not current_id:
+            raise RuntimeError(f"Final-published calendar layout {layout_name!r} has no layoutId")
+        logging.info("Resolved final-published calendar layoutId=%s (was %s)", current_id, layout_id)
+        layout_id = current_id
+
+        # Step 9: Assign to display group
         if assign_to_display_group_id:
             self.assign_layouts_to_displaygroup(
                 assign_to_display_group_id, [layout_id], dry_run=False
             )
 
-        # Step 9: Immediate show
+        # Step 10: Immediate show
         if immediate_show and assign_to_display_group_id:
             self.change_layout_on_displaygroup(
                 assign_to_display_group_id,

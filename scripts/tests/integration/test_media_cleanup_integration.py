@@ -44,6 +44,10 @@ class FakeSyncClient:
         self.calls.append(("get_draft_layout_id", layout_id))
         return None
 
+    def get_layout_by_id(self, layout_id: str) -> dict[str, str] | None:
+        self.calls.append(("get_layout_by_id", layout_id))
+        return None
+
     def tag_layout(self, layout_id: str, tags: list[str], dry_run: bool = False) -> None:
         self.calls.append(("tag_layout", (layout_id, tags, dry_run)))
 
@@ -53,8 +57,17 @@ class FakeSyncClient:
             return [{"layoutId": "owned-layout", "tags": [ownership_tag]}]
         return []
 
-    def cleanup_layout_for_media(self, layout: dict[str, Any], media_id: str, ownership_tag: str, dry_run: bool) -> None:
-        self.calls.append(("cleanup_layout_for_media", (layout["layoutId"], media_id, ownership_tag, dry_run)))
+    def cleanup_layout_for_media(
+        self,
+        layout: dict[str, Any],
+        media_id: str,
+        ownership_tag: str,
+        display_group_ids: list[str] | None = None,
+        dry_run: bool = False,
+    ) -> None:
+        self.calls.append(
+            ("cleanup_layout_for_media", (layout["layoutId"], media_id, ownership_tag, tuple(display_group_ids or []), dry_run))
+        )
 
     def delete_media(self, media_id: str, dry_run: bool) -> None:
         self.calls.append(("delete_media", (media_id, dry_run)))
@@ -131,13 +144,44 @@ class TagSpawnsNewDraftFakeSyncClient(FakeSyncClient):
         self.pending_draft_id = "tag-draft-layout"
 
 
+class AlreadyPublishedNoDraftFakeSyncClient(FakeSyncClient):
+    """Model Xibo 4.4 where publishing an already-published layout with no
+    pending draft always 404s, because the draft row is consumed by the first
+    successful publish and there is nothing left to publish on retry.
+    """
+
+    def __init__(self, base_url: str, verify_tls: bool, timeout: int) -> None:
+        super().__init__(base_url, verify_tls, timeout)
+        self.published_once = False
+
+    def publish_layout(self, layout_id: str, dry_run: bool = False) -> None:
+        self.calls.append(("publish_layout", (layout_id, dry_run)))
+        if layout_id == "draft-layout" and not self.published_once:
+            self.published_once = True
+            return
+        raise RuntimeError(f"Publish layoutId={layout_id} failed (404): Layout not found")
+
+    def get_layout_by_id(self, layout_id: str) -> dict[str, str] | None:
+        self.calls.append(("get_layout_by_id", layout_id))
+        return {"layoutId": layout_id, "publishedStatusId": "1"}
+
+
 class FailingCleanupFakeSyncClient(FakeSyncClient):
     def __init__(self, base_url: str, verify_tls: bool, timeout: int, failure: str) -> None:
         super().__init__(base_url, verify_tls, timeout)
         self.failure = failure
 
-    def cleanup_layout_for_media(self, layout: dict[str, Any], media_id: str, ownership_tag: str, dry_run: bool) -> None:
-        self.calls.append(("cleanup_layout_for_media", (layout["layoutId"], media_id, ownership_tag, dry_run)))
+    def cleanup_layout_for_media(
+        self,
+        layout: dict[str, Any],
+        media_id: str,
+        ownership_tag: str,
+        display_group_ids: list[str] | None = None,
+        dry_run: bool = False,
+    ) -> None:
+        self.calls.append(
+            ("cleanup_layout_for_media", (layout["layoutId"], media_id, ownership_tag, tuple(display_group_ids or []), dry_run))
+        )
         raise RuntimeError(self.failure)
 
 
@@ -241,7 +285,7 @@ def test_normal_delete_cleans_owned_layout_before_media_and_ignores_unrelated_la
         ("list_layouts_by_ownership_tag", "xibo-sync-media:media-owned"),
         ("list_layouts_by_ownership_tag", "xibo-sync-media:media-unrelated"),
     ]
-    assert ("cleanup_layout_for_media", ("owned-layout", "media-owned", "xibo-sync-media:media-owned", False)) in client.calls
+    assert ("cleanup_layout_for_media", ("owned-layout", "media-owned", "xibo-sync-media:media-owned", (), False)) in client.calls
     assert not any(call[0] == "cleanup_layout_for_media" and call[1][1] == "media-unrelated" for call in client.calls)
     assert [call[1][0] for call in client.calls if call[0] == "delete_media"] == ["media-owned", "media-unrelated"]
 
@@ -272,7 +316,7 @@ def test_cleanup_failure_prevents_media_deletion(
 
     client = _run_main(monkeypatch, tmp_path, client_factory=failing_client, expected_exit_code=2)
 
-    assert ("cleanup_layout_for_media", ("owned-layout", "media-owned", "xibo-sync-media:media-owned", False)) in client.calls
+    assert ("cleanup_layout_for_media", ("owned-layout", "media-owned", "xibo-sync-media:media-owned", (), False)) in client.calls
     assert not any(name == "delete_media" for name, _ in client.calls)
     assert expected_message in failure
 
@@ -285,7 +329,7 @@ def test_externally_opened_tagged_draft_prevents_layout_and_media_deletion(monke
         expected_exit_code=2,
     )
 
-    assert ("cleanup_layout_for_media", ("owned-layout", "media-owned", "xibo-sync-media:media-owned", False)) in client.calls
+    assert ("cleanup_layout_for_media", ("owned-layout", "media-owned", "xibo-sync-media:media-owned", (), False)) in client.calls
     assert not any(name in {"discard_layout_draft", "delete_layout", "delete_media"} for name, _ in client.calls)
 
 
@@ -381,6 +425,35 @@ def test_media_layout_retries_publish_after_tag_spawns_new_draft(monkeypatch, tm
     ]
 
 
+def test_media_layout_publish_404_on_already_published_layout_with_no_draft_succeeds(
+    monkeypatch, tmp_path: Path
+) -> None:
+    _configure(monkeypatch, tmp_path / "media")
+    cfg = load_config()
+    cfg.delete_remote_not_local = False
+    cfg.trigger_collectnow_on_changes = False
+    fake = AlreadyPublishedNoDraftFakeSyncClient("http://cms", False, 10)
+    monkeypatch.setattr(app, "XiboClient", lambda *args: fake)
+    monkeypatch.setattr(app, "load_config", lambda: cfg)
+    monkeypatch.setattr(app, "read_env_file", lambda path: {})
+    monkeypatch.setattr(app, "write_env_file", lambda path, values: None)
+    monkeypatch.setattr(app, "setup_logging", lambda *args: None)
+    monkeypatch.setattr(app, "list_local_media", lambda *args: [Path("new.png")])
+    monkeypatch.setattr(app, "build_local_index", lambda *args: {"new.png": Path("new.png")})
+    monkeypatch.setattr(app, "build_remote_index", lambda *args: {})
+    monkeypatch.setattr("sys.argv", ["sync_xibo.py", "--yes"])
+
+    assert app.main() == 0
+
+    publish_calls = [call for call in fake.calls if call[0] == "publish_layout"]
+    assert publish_calls == [
+        ("publish_layout", ("draft-layout", False)),
+        ("publish_layout", ("published-layout", False)),
+    ]
+    assert ("get_layout_by_id", "published-layout") in fake.calls
+    assert any(name == "tag_layout" for name, _ in fake.calls)
+
+
 @pytest.mark.parametrize(
     ("client_type", "expects_lookup"),
     [
@@ -419,6 +492,6 @@ def test_media_layout_publish_recovery_does_not_retry_without_new_authoritative_
 def test_dry_run_deletion_calls_planning_helpers_without_mutating_transport(monkeypatch, tmp_path: Path) -> None:
     client = _run_main(monkeypatch, tmp_path, dry_run=True)
 
-    assert ("cleanup_layout_for_media", ("owned-layout", "media-owned", "xibo-sync-media:media-owned", True)) in client.calls
+    assert ("cleanup_layout_for_media", ("owned-layout", "media-owned", "xibo-sync-media:media-owned", (), True)) in client.calls
     assert [call[1][1] for call in client.calls if call[0] == "delete_media"] == [True, True]
     assert not any(name == "publish_layout" for name, _ in client.calls)

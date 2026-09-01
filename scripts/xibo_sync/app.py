@@ -12,7 +12,7 @@ from rich.prompt import Confirm
 
 from .calendar_data import CALENDAR_COLUMNS, csv_bytes, load_events
 from .calendar_html import generate_calendar_packages
-from .client import XiboClient
+from .client import XiboClient, media_layout_ownership_tag
 from .config import load_config
 from .env_io import read_env_file, write_env_file
 from .media import build_local_index, build_remote_index, list_local_media
@@ -199,6 +199,74 @@ def run_calendar_html_upload(cfg, scripts_dir: Path) -> int:
     return 0
 
 
+def _publish_and_resolve_layout(xibo: XiboClient, layout_id: str, layout_name: str, media_id: str, dry_run: bool) -> str:
+    """Publish a layout and return its authoritative post-publish ID.
+
+    Xibo can replace a draft row during checkout, publication, or tagging. A
+    404 from the given layout ID is recoverable when either a draft-aware
+    lookup (``get_draft_layout_id``) or an exact name lookup resolves a
+    different, publishable ID; all other failures stop the upload workflow.
+    """
+    try:
+        xibo.publish_layout(layout_id, dry_run=dry_run)
+    except Exception as publish_error:
+        if dry_run or "failed (404)" not in str(publish_error):
+            raise
+
+        candidate_ids = []
+        draft_id = xibo.get_draft_layout_id(layout_id)
+        if draft_id and draft_id != layout_id:
+            candidate_ids.append(draft_id)
+        resolved = xibo.get_layout_by_name(layout_name)
+        name_id = str(resolved.get("layoutId") or resolved.get("id") or "") if isinstance(resolved, dict) else ""
+        if name_id and name_id != layout_id and name_id not in candidate_ids:
+            candidate_ids.append(name_id)
+
+        for candidate_id in candidate_ids:
+            try:
+                xibo.publish_layout(candidate_id, dry_run=False)
+            except Exception:
+                continue
+            logging.info(
+                "Recovered publish for mediaId=%s with resolved layoutId=%s (was %s)",
+                media_id,
+                candidate_id,
+                layout_id,
+            )
+            layout_id = candidate_id
+            break
+        else:
+            # No candidate accepted a fresh publish. This 404 is also the expected
+            # response when the layout is already published with nothing left to
+            # publish (Xibo consumes the draft row on the first publish), so
+            # confirm that state before treating it as a genuine failure.
+            current = xibo.get_layout_by_id(layout_id)
+            if (
+                isinstance(current, dict)
+                and str(current.get("publishedStatusId")) == "1"
+                and not xibo.get_draft_layout_id(layout_id)
+            ):
+                logging.info(
+                    "Publish 404 for mediaId=%s layoutId=%s but layout is already published with no draft; treating as success",
+                    media_id,
+                    layout_id,
+                )
+            else:
+                raise publish_error
+
+    if dry_run:
+        return layout_id
+
+    current = xibo.get_layout_by_name(layout_name)
+    if not isinstance(current, dict):
+        raise RuntimeError(f"Published layout {layout_name!r} could not be resolved for mediaId={media_id}")
+    current_id = str(current.get("layoutId") or current.get("id") or "")
+    if not current_id:
+        raise RuntimeError(f"Published layout {layout_name!r} has no layoutId for mediaId={media_id}")
+    logging.info("Resolved published layout for mediaId=%s: %s -> %s", media_id, layout_id, current_id)
+    return current_id
+
+
 def main() -> int:
     """Run the sync CLI, including config prompts, diffing, and actions.
 
@@ -358,46 +426,27 @@ def main() -> int:
                             layout_id = str(layout.get("layoutId") or layout.get("id") or "")
 
                         if layout_id:
-                            layout_name = layout.get("layout") or layout.get("name") if isinstance(layout, dict) else None
+                            layout_name = (layout.get("layout") or layout.get("name")) if isinstance(layout, dict) else None
 
-                            # Publish before tagging: Xibo rejects tag changes on Draft layouts,
-                            # and a freshly created layout is a Draft until published.
-                            if cfg.publish_on_change:
-                                try:
-                                    xibo.publish_layout(layout_id, dry_run=cfg.dry_run)
-                                except Exception as e:
-                                    logging.warning("Publish failed for layoutId=%s: %s", layout_id, e)
-                                    # Attempt a fallback: search for the layout by name and retry publish
-                                    if layout_name:
-                                        try:
-                                            found = xibo.get_layout_by_name(layout_name)
-                                            if isinstance(found, dict):
-                                                found_id = str(found.get("layoutId") or found.get("id") or "")
-                                                if found_id and found_id != layout_id:
-                                                    logging.info("Retrying publish with layoutId=%s (found by name '%s')", found_id, layout_name)
-                                                    xibo.publish_layout(found_id, dry_run=cfg.dry_run)
-                                                    layout_id = found_id
-                                        except Exception as e2:
-                                            logging.warning("Fallback publish attempt failed: %s", e2)
+                            if not layout_name:
+                                raise RuntimeError(f"Created layout for mediaId={media_id} has no name for publish recovery")
 
-                                # Publishing can merge/replace the checked-out draft's id, so
-                                # re-resolve the authoritative layoutId by name before continuing.
-                                if layout_name and not cfg.dry_run:
-                                    try:
-                                        current = xibo.get_layout_by_name(layout_name)
-                                        if isinstance(current, dict):
-                                            current_id = str(current.get("layoutId") or current.get("id") or "")
-                                            if current_id and current_id != layout_id:
-                                                logging.info("Layout id changed after publish: %s -> %s", layout_id, current_id)
-                                                layout_id = current_id
-                                    except Exception as e3:
-                                        logging.warning("Failed to re-resolve layoutId after publish: %s", e3)
+                            # Publish the background edit before tagging. Xibo can replace a
+                            # checked-out draft ID, so always use the canonical published ID.
+                            layout_id = _publish_and_resolve_layout(
+                                xibo, layout_id, layout_name, media_id, cfg.dry_run
+                            )
 
-                            # Tag the layout with MANAGED_TAG so it can be found by dynamic playlists
-                            try:
-                                xibo.tag_layout(layout_id, [cfg.managed_tag], dry_run=cfg.dry_run)
-                            except Exception as e:
-                                logging.warning("Failed to tag layoutId=%s with MANAGED_TAG: %s", layout_id, e)
+                            ownership_tag = media_layout_ownership_tag(media_id)
+                            logging.info("Managed media layout: mediaId=%s layoutId=%s ownershipTag=%s", media_id, layout_id, ownership_tag)
+                            xibo.tag_layout(layout_id, [cfg.managed_tag, ownership_tag], dry_run=cfg.dry_run)
+
+                            # Tagging is itself a layout mutation in Xibo 4.4 and can create a
+                            # draft. Do not expose the layout to groups or players until this
+                            # final publication succeeds and its canonical ID is re-resolved.
+                            layout_id = _publish_and_resolve_layout(
+                                xibo, layout_id, layout_name, media_id, cfg.dry_run
+                            )
 
                             if cfg.assign_layout_on_change and cfg.display_group_id:
                                 xibo.assign_layouts_to_displaygroup(cfg.display_group_id, [layout_id], dry_run=cfg.dry_run)
@@ -440,6 +489,19 @@ def main() -> int:
                             "Deleting mediaId=%s without embedded tags because the library query was already restricted by MANAGED_TAG.",
                             media_id,
                         )
+
+                if cfg.delete_layout_with_media:
+                    ownership_tag = media_layout_ownership_tag(media_id)
+                    layouts = xibo.list_layouts_by_ownership_tag(ownership_tag)
+                    for layout in layouts:
+                        xibo.cleanup_layout_for_media(
+                            layout,
+                            media_id=media_id,
+                            ownership_tag=ownership_tag,
+                            display_group_ids=[cfg.display_group_id] if cfg.display_group_id else [],
+                            dry_run=cfg.dry_run,
+                        )
+                        changes_made = True
 
                 xibo.delete_media(media_id, dry_run=cfg.dry_run)
                 changes_made = True
