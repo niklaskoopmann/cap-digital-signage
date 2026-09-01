@@ -48,6 +48,8 @@ You are a senior developer with experience in Python, Docker, and Xibo CMS.
 
 - Update docs in the same change when behavior changes.
 - Preserve the existing command-line workflow unless there is a clear reason to improve it.
+- Read the relevant `Planned` entry in `docs/CHANGELOG.md` when it exists to understand related completed work and the change being implemented.
+- After the planned change has passed all required validation and review stages, update its `docs/CHANGELOG.md` entry to `Implemented` and summarize the delivered behavior. Do not mark an entry implemented when required validation is incomplete or has failed.
 - Call out optimization opportunities when you see them, especially if they improve readability, safety, or testability.
 - If a suggested optimization would add complexity, explain the tradeoff instead of applying it automatically.
 - After finishing the work, document the decisions made, the tradeoffs considered, and any constraints that shaped the implementation.

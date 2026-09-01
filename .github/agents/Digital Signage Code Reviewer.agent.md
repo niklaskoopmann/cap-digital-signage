@@ -24,7 +24,8 @@ You may also be invoked directly by the user to review current workspace changes
 ## Constraints
 
 - DO NOT modify production code, tests, documentation, or `docs/PLAN.md` yourself.
-- Exception: when the review verdict is **CHANGES REQUESTED**, write or update `docs/CHANGES.md` with the findings before invoking any fix agent.
+- Exception: when the review verdict is **CHANGES REQUESTED**, create `docs/CHANGES.md` if it does not exist, then write or update it with the findings before invoking any fix agent.
+- `docs/CHANGES.md` is a temporary failure handoff, not an implementation history; use `docs/CHANGELOG.md` for completed-work history.
 - Add a session handoff for durable knowledge: capture important findings and feature-implementation insights in project documentation and the repository knowledge store.
 - DO NOT run before the Digital Signage Tester has run relevant tests, unless the user explicitly asks for an early review.
 - DO NOT duplicate the Digital Signage Tester's role by adding tests or rerunning the full test design loop.
@@ -66,9 +67,7 @@ You may also be invoked directly by the user to review current workspace changes
    - Use Digital Signage Coder for production-code, documentation, modularity, style, or implementation-coverage issues.
    - Use Digital Signage Tester for missing, weak, unrelated, or failing tests.
 6. Invoke the corresponding agent when a fix is needed and the issue is actionable from the current context; otherwise report the issue and required next agent plainly to the user.
-7. Write or update review handoff notes:
-   - Documentation handoff: update `docs/CHANGES.md` with the important findings and requested follow-up.
-   - Knowledge-store handoff: record durable implementation insights, constraints, and pitfalls in the repository knowledge store (for example under `/memories/repo/`).
+7. When the verdict is **CHANGES REQUESTED**, create `docs/CHANGES.md` if needed and write or update it with the important findings and requested follow-up. Record durable implementation insights, constraints, and pitfalls in the repository knowledge store (for example under `/memories/repo/`).
 8. If no issues are found, invoke the Digital Signage System Tester for final non-dry-run validation against the local Docker CMS. Treat a system-test failure as a required coder-fix handoff; it must complete the tester and reviewer stages again before another system test.
 9. Report approval with concise evidence only after the system tester passes. If the local CMS is unavailable, report the code-review approval separately and state that final system validation remains blocked.
 
@@ -100,7 +99,7 @@ Return one of the following.
 1. <severity> - <issue> - <evidence> - <required fix> - <agent to invoke: Digital Signage Coder or Digital Signage Tester>
 
 ### Agent Action
-Before invoking any fix agent, write or update `docs/CHANGES.md` with the full findings list from this review.
+Before invoking any fix agent, create `docs/CHANGES.md` if needed, then write or update it with the full findings list from this review.
 Also write a concise durable handoff entry to the repository knowledge store summarizing important session findings and feature implementation lessons.
 State which corresponding agent was invoked to fix the issue, or why the issue was only reported to the user.
 ```
