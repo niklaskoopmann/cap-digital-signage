@@ -35,8 +35,9 @@ The main sync actions are:
 	 - If `IMMEDIATE_SHOW_ON_CHANGE=true`, the script sends a change-layout action to the display
 		 group which is delivered to online players and will make them show the layout immediately.
 
-The calendar workflow is separate from media sync. It selects the newest timestamped calendar JSON
-snapshot and replaces the configured Xibo DataSet with that snapshot.
+The calendar DataSet workflow selects the newest timestamped calendar JSON snapshot and replaces
+the configured Xibo DataSet with that snapshot. Calendar image uploads reuse the normal media
+upload and optional per-upload layout behavior described above.
 
 ## Before you start
 
@@ -163,20 +164,20 @@ Calendar runs replace the DataSet contents. This avoids duplicates because Xibo'
 does not support an upsert key. The uploaded schema includes `eventIdentifier` and the other
 curated calendar fields described in the technical documentation.
 
-## Calendar HTML Packages
+## Calendar HTML Images
 
-The `--upload-calendar-html` command generates self-contained HTML calendar widgets, packages them
-as `.htz` files, and deploys each one to a named layout in Xibo — no manual CMS steps required.
+The `--upload-calendar-html` command renders the editable HTML calendar template to 1920x1080 PNG
+images and uploads each image as normal Xibo media. With `CREATE_LAYOUT_PER_UPLOAD=true`, every
+newly uploaded calendar image also gets a full-screen layout using the same publish, tag, optional
+assignment, and optional immediate-show workflow as other media. With `false`, only media is uploaded.
 
 ### Prerequisites
 
 - Python 3.10+ with the dependencies from `requirements.txt` installed.
 - Activate `scripts/.venv` before running commands.
+- Install the Chromium browser for Playwright with `playwright install chromium`.
 - A working Xibo CMS reachable at `CMS_BASE_URL`.
 - `CALENDAR_JSON_PATH` pointing to a directory containing a valid calendar snapshot.
-- Target layouts do not need a pre-created region.
-	If a layout has no regions, the deploy flow attempts to create a full-screen region automatically
-	and then assigns the package to that region's playlist.
 
 ### Running
 
@@ -200,8 +201,8 @@ python sync_xibo.py --upload-calendar-html --yes
 The calendar HTML generation is configured by environment variables in `scripts/.env`:
 
 ```env
-# ---- Calendar HTML packages ----
-# Enable calendar HTML package generation
+# ---- Calendar HTML images ----
+# Enable calendar HTML image generation
 CALENDAR_ENABLE_HTML=true
 
 # Views to generate (comma-separated)
@@ -210,8 +211,7 @@ CALENDAR_HTML_VIEWS=today,this_week,next_2_weeks
 # Optional: path to the template directory (defaults to scripts/templates/calendar)
 # CALENDAR_TEMPLATE_DIR=templates/calendar
 
-# Edited layouts are always published to release the CMS checkout.
-# This compatibility setting no longer disables publication.
+# Legacy compatibility setting; per-upload layout publication is controlled separately.
 CALENDAR_AUTO_PUBLISH=true
 
 # IANA timezone for event filtering and time display labels (default: Europe/Berlin).
@@ -221,7 +221,7 @@ CALENDAR_AUTO_PUBLISH=true
 # Example: Europe/Berlin, Europe/Amsterdam, UTC
 CALENDAR_TIMEZONE=Europe/Berlin
 
-# Delete local packages older than this many days
+# Retained for compatibility; PNGs remain in LOCAL_MEDIA_DIR as normal media.
 CALENDAR_PACKAGE_RETENTION_DAYS=1
 ```
 
@@ -229,7 +229,8 @@ CALENDAR_PACKAGE_RETENTION_DAYS=1
 
 - Each view name (e.g., `today`, `this_week`) requires a file named `views/<name>.json` in the
   template directory.
-- Each `.json` file specifies the view's title, time window, and the Xibo layout name to deploy to.
+- Each `.json` file specifies the view's title and time window. Any legacy `layout_name` value is
+	ignored; per-upload layouts use the normal media-derived layout name.
 
 The bundled templates come with three views: `today`, `this_week`, and `next_2_weeks`. Their
 layout names are `Calendar Today`, `Calendar This Week`, and `Calendar Next 2 Weeks`.
@@ -239,7 +240,7 @@ layout names are `Calendar Today`, `Calendar This Week`, and `Calendar Next 2 We
 #### Edit an existing view's title or window
 
 1. Open the view's config file (e.g., `scripts/templates/calendar/views/today.json`)
-2. Edit the `title`, `window_days`, or `layout_name` fields as needed
+2. Edit the `title` or `window_days` fields as needed
 3. Re-run the sync
 
 Example: to change the "Today" view to show 3 days instead of 1:
@@ -248,7 +249,7 @@ Example: to change the "Today" view to show 3 days instead of 1:
 {
   "title": "Today & 2 More Days",
   "window_days": 3,
-  "layout_name": "Calendar Today"
+	"template_file": "template.html"
 }
 ```
 
@@ -260,7 +261,7 @@ Example: to change the "Today" view to show 3 days instead of 1:
 {
   "title": "My Custom View",
   "window_days": 30,
-  "layout_name": "Calendar Custom"
+	"template_file": "template.html"
 }
 ```
 
@@ -272,7 +273,7 @@ CALENDAR_HTML_VIEWS=today,this_week,next_2_weeks,myview
 
 3. Re-run the sync.
 
-No Python code changes required! The new view will be generated and deployed just like the bundled views.
+No Python code changes required. The new view will be rendered and uploaded as a PNG like the bundled views.
 
 ### Preview Templates
 

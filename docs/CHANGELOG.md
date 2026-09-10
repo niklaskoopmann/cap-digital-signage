@@ -12,6 +12,11 @@ work that has already been completed.
 
 ## Changes
 
+### 2026-09-10 - Electron-compatible calendar PNG media workflow
+- Status: `Planned`
+- Summary: Replaced calendar HTZ deployment with Playwright-rendered 1920x1080 PNGs in `LOCAL_MEDIA_DIR`, verified media uploads with calendar tags, shared optional per-upload full-screen layouts, and non-persistent dry-run behavior.
+- Plan: `docs/PLAN.md`
+
 ### 2026-09-01 - Historical implemented-feature changelog backfill
 - Status: `Implemented`
 - Summary: Added concise, commit-supported historical records for completed sync, calendar, layout, and cleanup features.

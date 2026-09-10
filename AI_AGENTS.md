@@ -22,6 +22,10 @@ This repository centers on the Xibo media sync workflow.
 - The Xibo API specification is in `xibo/docs/swagger.json`.
 - Calendar snapshots are uploaded with `scripts/sync_xibo.py --upload-calendar`; the newest
 	`office_calendar_events_yyyy-MM-dd_HH-mm-ss.json` file is selected and replaces the target DataSet.
+- `scripts/sync_xibo.py --upload-calendar-html` renders configured Jinja views to 1920x1080 PNGs in
+  `LOCAL_MEDIA_DIR` and uploads them as normal media. It does not deploy legacy reusable calendar
+  layouts, but `CREATE_LAYOUT_PER_UPLOAD=true` applies the normal per-media layout lifecycle. Install
+  the Python dependency and browser with `pip install -r requirements.txt` and `playwright install chromium`.
 
 ## Player reference
 

@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import argparse
 import logging
-import time
 from pathlib import Path
 
 from dotenv import load_dotenv
 from rich.prompt import Confirm
 
 from .calendar_data import CALENDAR_COLUMNS, csv_bytes, load_events
-from .calendar_html import generate_calendar_packages
+from .calendar_html import generate_calendar_images
 from .client import XiboClient, media_layout_ownership_tag
 from .config import load_config
 from .env_io import read_env_file, write_env_file
@@ -100,8 +99,13 @@ def run_calendar_upload(cfg, scripts_dir: Path) -> int:
     return 0
 
 
-def run_calendar_html_upload(cfg, scripts_dir: Path) -> int:
-    """Generate calendar HTML packages and deploy them to Xibo layouts.
+def run_calendar_html_upload(
+    cfg,
+    scripts_dir: Path,
+    *,
+    renderer=None,
+) -> int:
+    """Render calendar HTML views as PNGs and upload them as normal media.
 
     Args:
         cfg: Populated :class:`~xibo_sync.config.Config` instance.
@@ -137,19 +141,30 @@ def run_calendar_html_upload(cfg, scripts_dir: Path) -> int:
             ui_error(f"  - {view_type}: {path}")
         return 2
 
-    output_dir = scripts_dir / "calendar_packages"
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = cfg.local_media_dir
+    if not output_dir.is_absolute():
+        output_dir = (scripts_dir / output_dir).resolve()
 
-    packages = generate_calendar_packages(
+    images = generate_calendar_images(
         events,
         list(cfg.calendar_html_views),
         template_dir,
         output_dir,
         cfg.calendar_timezone,
+        renderer=renderer,
+        write_images=not cfg.dry_run,
     )
 
-    if not packages:
-        ui_warn("No calendar packages were generated. Check CALENDAR_HTML_VIEWS and the snapshot.")
+    if not images:
+        ui_warn("No calendar images were generated. Check CALENDAR_HTML_VIEWS and the snapshot.")
+        return 0
+
+    for image in images:
+        ui_info(f"Calendar image: {image.image_path} ({image.event_count} event(s))")
+
+    if cfg.dry_run:
+        for image in images:
+            ui_ok(f"[DRY_RUN] Would render and upload: {image.image_path}")
         return 0
 
     xibo = XiboClient(cfg.cms_base_url, cfg.cms_verify_tls, cfg.cms_timeout)
@@ -159,42 +174,22 @@ def run_calendar_html_upload(cfg, scripts_dir: Path) -> int:
     xibo.health_check()
     ui_ok("Xibo API reachable")
 
-    for package in packages:
-        date_stem = package.package_path.stem.split("_")[-1]
-        tags = ["calendar-html", f"calendar-{package.view_type}", date_stem]
-
-        if cfg.dry_run:
-            ui_ok(
-                f"[DRY_RUN] Would deploy: {package.layout_name} ({package.event_count} event(s))"
-            )
-            continue
-
-        xibo.deploy_calendar_package_to_layout(
-            layout_name=package.layout_name,
-            package_path=package.package_path,
+    for image in images:
+        start_date = image.window_start.strftime("%Y-%m-%d")
+        tags = [
+            cfg.managed_tag,
+            "calendar-html",
+            "calendar-image",
+            f"calendar-{image.view_type}",
+            start_date,
+        ]
+        _upload_media_with_optional_layout(
+            xibo,
+            cfg,
+            file_path=image.image_path,
             tags=tags,
-            publish=cfg.calendar_auto_publish,
-            assign_to_display_group_id=cfg.display_group_id,
-            immediate_show=cfg.immediate_show_on_change,
-            dry_run=cfg.dry_run,
         )
-        ui_ok(f"Deployed: {package.layout_name} ({package.event_count} event(s))")
-
-    # Clean up local packages older than retention days
-    retention_seconds = cfg.calendar_package_retention_days * 86400
-    now_ts = time.time()
-    cleaned = 0
-    for htz_file in output_dir.glob("*.htz"):
-        try:
-            if now_ts - htz_file.stat().st_mtime > retention_seconds:
-                htz_file.unlink()
-                cleaned += 1
-                logging.info("Removed stale calendar package: %s", htz_file.name)
-        except Exception as e:
-            logging.warning("Failed to remove stale package %s: %s", htz_file.name, e)
-
-    if cleaned:
-        ui_info(f"Cleaned up {cleaned} stale calendar package(s) older than {cfg.calendar_package_retention_days} day(s)")
+        ui_ok(f"Uploaded: {image.image_path.name} ({image.event_count} event(s))")
 
     return 0
 
@@ -267,6 +262,77 @@ def _publish_and_resolve_layout(xibo: XiboClient, layout_id: str, layout_name: s
     return current_id
 
 
+def _upload_media_with_optional_layout(
+    xibo: XiboClient,
+    cfg,
+    *,
+    file_path: Path,
+    tags: list[str],
+):
+    """Upload one media file and run the configured full-screen layout lifecycle."""
+    created = xibo.upload_media(
+        file_path=file_path,
+        name=file_path.name,
+        folder_id=cfg.managed_folder_id,
+        tags=tags,
+        preferred_field=cfg.xibo_upload_field,
+        dry_run=cfg.dry_run,
+    )
+
+    if not cfg.create_layout_per_upload or not created:
+        return created
+
+    media_id = None
+    if isinstance(created, dict):
+        media_id = str(created.get("mediaId") or created.get("id") or "")
+        if not media_id and created.get("files"):
+            try:
+                media_id = str(created.get("files")[0].get("mediaId"))
+            except Exception:
+                media_id = None
+
+    if not media_id:
+        return created
+
+    layout = xibo.create_fullscreen_layout(created, dry_run=cfg.dry_run)
+    layout_id = None
+    if isinstance(layout, dict):
+        layout_id = str(layout.get("layoutId") or layout.get("id") or "")
+
+    if not layout_id:
+        return created
+
+    layout_name = (layout.get("layout") or layout.get("name")) if isinstance(layout, dict) else None
+    if not layout_name:
+        raise RuntimeError(f"Created layout for mediaId={media_id} has no name for publish recovery")
+
+    layout_id = _publish_and_resolve_layout(xibo, layout_id, layout_name, media_id, cfg.dry_run)
+
+    ownership_tag = media_layout_ownership_tag(media_id)
+    logging.info(
+        "Managed media layout: mediaId=%s layoutId=%s ownershipTag=%s",
+        media_id,
+        layout_id,
+        ownership_tag,
+    )
+    xibo.tag_layout(layout_id, [cfg.managed_tag, ownership_tag], dry_run=cfg.dry_run)
+
+    layout_id = _publish_and_resolve_layout(xibo, layout_id, layout_name, media_id, cfg.dry_run)
+
+    if cfg.assign_layout_on_change and cfg.display_group_id:
+        xibo.assign_layouts_to_displaygroup(cfg.display_group_id, [layout_id], dry_run=cfg.dry_run)
+
+    if cfg.immediate_show_on_change and cfg.display_group_id:
+        xibo.change_layout_on_displaygroup(
+            cfg.display_group_id,
+            layout_id,
+            download_required=1,
+            dry_run=cfg.dry_run,
+        )
+
+    return created
+
+
 def main() -> int:
     """Run the sync CLI, including config prompts, diffing, and actions.
 
@@ -282,7 +348,7 @@ def main() -> int:
     parser.add_argument("--yes", "-y", action="store_true", help="Non-interactive: accept defaults and skip prompts")
     parser.add_argument("--dry-run", action="store_true", help="Preview actions without uploading/deleting")
     parser.add_argument("--upload-calendar", action="store_true", help="Replace the calendar DataSet from the latest snapshot")
-    parser.add_argument("--upload-calendar-html", action="store_true", help="Generate HTML calendar packages and deploy to Xibo layouts")
+    parser.add_argument("--upload-calendar-html", action="store_true", help="Render calendar HTML views to 1920x1080 PNGs and upload as media")
     parser.add_argument("--delete", dest="delete", action="store_true", help="Delete remote-only media without prompt")
     parser.add_argument("--no-delete", dest="delete", action="store_false", help="Do not delete remote-only media")
     parser.set_defaults(delete=None)
@@ -396,64 +462,13 @@ def main() -> int:
                 if cfg.compare_mode == "hash":
                     tags.append(key)
 
-                created = xibo.upload_media(
+                _upload_media_with_optional_layout(
+                    xibo,
+                    cfg,
                     file_path=f,
-                    name=f.name,
-                    folder_id=cfg.managed_folder_id,
                     tags=tags,
-                    preferred_field=cfg.xibo_upload_field,
-                    dry_run=cfg.dry_run,
                 )
                 changes_made = True
-
-                # Optionally create a simple full-screen layout per uploaded media,
-                # publish it, assign to display group, and optionally force show.
-                if cfg.create_layout_per_upload and created:
-                    # best-effort extraction of the media id from the returned library object
-                    media_id = None
-                    if isinstance(created, dict):
-                        media_id = str(created.get("mediaId") or created.get("id") or "")
-                        if not media_id and created.get("files"):
-                            try:
-                                media_id = str(created.get("files")[0].get("mediaId"))
-                            except Exception:
-                                media_id = None
-
-                    if media_id:
-                        layout = xibo.create_fullscreen_layout(created, dry_run=cfg.dry_run)
-                        layout_id = None
-                        if isinstance(layout, dict):
-                            layout_id = str(layout.get("layoutId") or layout.get("id") or "")
-
-                        if layout_id:
-                            layout_name = (layout.get("layout") or layout.get("name")) if isinstance(layout, dict) else None
-
-                            if not layout_name:
-                                raise RuntimeError(f"Created layout for mediaId={media_id} has no name for publish recovery")
-
-                            # Publish the background edit before tagging. Xibo can replace a
-                            # checked-out draft ID, so always use the canonical published ID.
-                            layout_id = _publish_and_resolve_layout(
-                                xibo, layout_id, layout_name, media_id, cfg.dry_run
-                            )
-
-                            ownership_tag = media_layout_ownership_tag(media_id)
-                            logging.info("Managed media layout: mediaId=%s layoutId=%s ownershipTag=%s", media_id, layout_id, ownership_tag)
-                            xibo.tag_layout(layout_id, [cfg.managed_tag, ownership_tag], dry_run=cfg.dry_run)
-
-                            # Tagging is itself a layout mutation in Xibo 4.4 and can create a
-                            # draft. Do not expose the layout to groups or players until this
-                            # final publication succeeds and its canonical ID is re-resolved.
-                            layout_id = _publish_and_resolve_layout(
-                                xibo, layout_id, layout_name, media_id, cfg.dry_run
-                            )
-
-                            if cfg.assign_layout_on_change and cfg.display_group_id:
-                                xibo.assign_layouts_to_displaygroup(cfg.display_group_id, [layout_id], dry_run=cfg.dry_run)
-
-                            if cfg.immediate_show_on_change and cfg.display_group_id:
-                                # duration None -> use default; downloadRequired=1 ensures players will collect if configured
-                                xibo.change_layout_on_displaygroup(cfg.display_group_id, layout_id, download_required=1, dry_run=cfg.dry_run)
 
             ui_ok("Uploads complete")
         else:

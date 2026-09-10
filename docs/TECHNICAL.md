@@ -117,27 +117,29 @@ the CMS rejects underscore headings and broadly rejects headings containing rese
 remaining physical headings use opaque `c11`-`c18` names; their source mappings are documented in
 the calendar schema. Cancelled events are excluded by default.
 
-### Calendar HTML packages
+### Calendar HTML images
 
-`--upload-calendar-html` generates self-contained HTML calendar packages (`.htz` ZIP files), one
-per configured view, and deploys each to a named Xibo layout.
+`--upload-calendar-html` renders the editable Jinja template to one 1920x1080 PNG per configured
+view and uploads each PNG through the normal verified media path. When
+`CREATE_LAYOUT_PER_UPLOAD=true`, each uploaded image also follows the normal full-screen layout
+create, publish, ownership-tag, optional assignment, and optional immediate-show lifecycle.
 
 #### Template System
 
-Calendar HTML packages are generated using a template system that separates generic rendering logic
+Calendar images are generated using a template system that separates generic rendering logic
 from calendar-specific data processing:
 
 - **`scripts/xibo_sync/html_packaging.py`** (generic): Provides template rendering, config loading,
-  and ZIP packaging. Reusable by any future custom HTML package type, not just calendars.
+  and browser rendering. Reusable by any future custom HTML image type, not just calendars.
   - `render_template(template_dir, template_file, context)` – renders a Jinja2 template with a context dict.
   - `load_view_config(views_dir, view_type)` – loads a view configuration JSON file.
-  - `package_html_to_zip(html_content, output_path, package_name)` – writes HTML to a `.htz` ZIP file.
+  - `PlaywrightRenderer()` – captures rendered HTML as a PNG at the requested viewport.
 
 - **`scripts/xibo_sync/calendar_html.py`** (calendar-specific): Handles event filtering, normalization,
-  and template context building. Delegates rendering/packaging to `html_packaging.py`.
+  and template context building. Delegates browser rendering to `html_packaging.py`.
   - `filter_events_by_view(events, window_days, ...)` – filters raw calendar events by time window.
   - `build_calendar_template_context(events, title, window_days, ...)` – builds the Jinja2 context dict.
-  - `generate_calendar_packages(events, view_types, template_dir, output_path, ...)` – orchestrates
+  - `generate_calendar_images(events, view_types, template_dir, output_path, ...)` – orchestrates
     the generation pipeline for all requested views.
 
 #### Template Directory Layout
@@ -163,21 +165,19 @@ Each view is configured by a JSON file in `views/` with the following schema:
 {
   "title": "Today",
   "window_days": 1,
-  "layout_name": "Calendar Today",
   "template_file": "template.html"
 }
 ```
 
 - `title` (required): Display title for the calendar view (e.g., "Today", "This Week").
 - `window_days` (required): Number of days to include in the time window for event filtering.
-- `layout_name` (required): Xibo layout name to deploy the package to.
+- `layout_name` (optional): retained in existing view files for compatibility and ignored by PNG generation.
 - `template_file` (optional): Custom template filename (defaults to `template.html`). Allows
   different views to use different templates if needed.
 
 #### Bundled Views
 
-Three views ship by default with the configs/layout names shown below. You can customize these
-layout names by editing the JSON files in `scripts/templates/calendar/views/`:
+Three views ship by default with the configs shown below. Their legacy layout names are ignored:
 
 | View | Config File | Default window | Default layout name |
 |------|-------------|-----------------|---------------------|
@@ -193,11 +193,28 @@ layout names by editing the JSON files in `scripts/templates/calendar/views/`:
    - Filter calendar events by the view's `window_days`.
    - Build a template context dict with title, date range, event count, event list, and timestamp.
    - Render the template (`template.html` or a custom template_file) with that context using Jinja2.
-   - Package the rendered HTML into a `.htz` file with the naming convention
-     `calendar_<view>_YYYY-MM-DD.htz`.
-3. Packages are written to `scripts/calendar_packages/`.
+   - Capture the rendered HTML with Playwright Chromium at a fixed 1920x1080 viewport.
+   - Write `calendar_<view>_<YYYY-MM-DD>.png` into the resolved `LOCAL_MEDIA_DIR`, using the
+     local window start date.
+3. Upload each generated PNG through `XiboClient.upload_media()` with tags for `MANAGED_TAG`,
+   `calendar-html`, `calendar-image`, `calendar-<view>`, and the start date.
+4. If `CREATE_LAYOUT_PER_UPLOAD=true`, pass the verified upload result through the shared normal
+  media layout orchestration. If it is `false`, perform no layout mutation.
+5. In dry-run mode, report exact target paths and skip PNG writes, renderer capture, Xibo
+   construction, and CMS mutations.
 
-#### Deploy pipeline (`deploy_calendar_package_to_layout`)
+Playwright is declared in `scripts/requirements.txt` and also requires its browser binary. From
+the activated `scripts/.venv`, run `playwright install chromium`. Missing package or browser
+errors identify this setup command.
+
+#### Legacy HTZ API helpers
+
+The following older client helpers remain only for compatibility with other callers. The
+`--upload-calendar-html` command does not call them or deploy legacy reusable calendar layouts.
+Any layout it creates comes from the normal `CREATE_LAYOUT_PER_UPLOAD` media workflow.
+
+The following legacy details describe compatibility helpers only; they are not part of the active
+calendar image command.
 
 1. **Upload** – `upload_html_package()` uploads the `.htz` file to the Xibo library using the
    existing `upload_media()` infrastructure. Mime type: `application/zip` (sent as
@@ -246,18 +263,17 @@ CMS. Reusable calendar layouts are excluded.
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `CALENDAR_ENABLE_HTML` | `false` | Enable HTML package generation. Only the `--upload-calendar-html` flag triggers the workflow; this key can be used by external orchestration. |
+| `CALENDAR_ENABLE_HTML` | `false` | Enable calendar HTML image generation for external orchestration. The `--upload-calendar-html` flag triggers the workflow. |
 | `CALENDAR_HTML_VIEWS` | `today,this_week,next_2_weeks` | Comma-separated view names to generate. Must have matching `views/<name>.json` files in the template directory. View names are validated at runtime in `app.py`. |
 | `CALENDAR_TEMPLATE_DIR` | `templates/calendar` | Template directory containing `template.html`, `views/*.json` configs, and `preview_sample.json`. Relative paths resolve from `scripts/`. |
-| `CALENDAR_AUTO_PUBLISH` | `true` | Publish layouts after each package assignment. |
+| `CALENDAR_AUTO_PUBLISH` | `true` | Legacy compatibility setting; normal per-upload layout publication is controlled by `CREATE_LAYOUT_PER_UPLOAD`. |
 | `CALENDAR_TIMEZONE` | `Europe/Berlin` | IANA timezone name used for both event filtering and display labels. Daylight saving transitions (e.g., CEST/CET for Europe/Berlin) are handled automatically by the `tzdata` package. |
-| `CALENDAR_PACKAGE_RETENTION_DAYS` | `30` | Delete local `.htz` files from `scripts/calendar_packages/` whose mtime exceeds this age. |
+| `CALENDAR_PACKAGE_RETENTION_DAYS` | `30` | Legacy compatibility setting; no calendar package cleanup is performed by the PNG workflow. |
 
 #### Local cleanup
 
-After each run, `.htz` files in `scripts/calendar_packages/` whose `mtime` is older than
-`CALENDAR_PACKAGE_RETENTION_DAYS` days are deleted. Xibo library cleanup is out of scope for this
-phase; manage old library items via the CMS UI or the `DELETE /library/{mediaId}` endpoint.
+Generated PNGs remain in `LOCAL_MEDIA_DIR` as normal local media. Xibo library cleanup is out of
+scope for this phase; manage old library items via normal media-sync settings or the CMS UI.
 
 ## Sync Flow
 
