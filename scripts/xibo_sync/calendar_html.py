@@ -1,4 +1,4 @@
-"""Generate self-contained HTML calendar packages from Microsoft Graph events."""
+"""Render configured calendar views as Full HD PNG images."""
 
 from __future__ import annotations
 
@@ -26,15 +26,15 @@ class CalendarEvent:
 
 
 @dataclass(frozen=True)
-class CalendarPackage:
-    """Metadata about a generated package on disk."""
+class CalendarImage:
+    """Metadata about a generated calendar image on disk."""
 
     view_type: str
     title: str
     date_range: str
     event_count: int
-    package_path: Path
-    layout_name: str
+    image_path: Path
+    window_start: datetime
 
 
 _FRACTION_RE = re.compile(r"\.(\d{6})\d+")
@@ -288,7 +288,7 @@ def build_calendar_template_context(
     }
 
 
-def generate_calendar_packages(
+def generate_calendar_images(
     events: Iterable[dict[str, Any]],
     view_types: Sequence[str],
     template_dir: Path,
@@ -296,19 +296,22 @@ def generate_calendar_packages(
     timezone: str | tzinfo | None = "UTC",
     *,
     now: datetime | None = None,
-) -> list[CalendarPackage]:
-    """Generate one package per requested view and write them to disk.
+    renderer: html_packaging.HtmlImageRenderer | None = None,
+    write_images: bool = True,
+) -> list[CalendarImage]:
+    """Render one PNG per requested view and return image metadata.
     
     Args:
         events: Raw calendar event dicts from Microsoft Graph.
         view_types: List of view names to generate (e.g., 'today', 'this_week').
         template_dir: Template directory containing template.html and views/*.json configs.
-        output_path: Directory in which to write the .htz packages.
+        output_path: Directory in which to write PNG images.
         timezone: Timezone for event filtering and formatting.
         now: Reference timestamp (defaults to current time).
     
     Returns:
-        List of CalendarPackage metadata for the generated packages.
+        renderer: Injectable HTML-to-PNG renderer for tests or alternate browsers.
+        write_images: When false, validate template rendering without writing PNGs.
     """
 
     reference_timezone = _coerce_timezone(timezone)
@@ -319,7 +322,7 @@ def generate_calendar_packages(
         reference_now = reference_now.astimezone(reference_timezone)
 
     event_list = list(events)
-    packages: list[CalendarPackage] = []
+    images: list[CalendarImage] = []
     views_dir = template_dir / "views"
 
     for view_type in view_types:
@@ -327,7 +330,6 @@ def generate_calendar_packages(
         view_config = html_packaging.load_view_config(views_dir, view_type)
         title = view_config.get("title", view_type)
         window_days = view_config.get("window_days", 1)
-        layout_name = view_config.get("layout_name", f"Calendar {title}")
         template_file = view_config.get("template_file", "template.html")
 
         # Filter events for this view
@@ -350,23 +352,24 @@ def generate_calendar_packages(
         # Render template
         html_content = html_packaging.render_template(template_dir, template_file, context)
 
-        # Package to HTZ
-        package_name = f"calendar_{view_type}_{reference_now.date():%Y-%m-%d}"
-        package_path = html_packaging.package_html_to_zip(html_content, output_path, package_name)
-
         # Compute date range for metadata
         window_start = reference_now.replace(hour=0, minute=0, second=0, microsecond=0)
         window_end = window_start + timedelta(days=window_days)
+        image_path = output_path / f"calendar_{view_type}_{window_start:%Y-%m-%d}.png"
+        if write_images:
+            (renderer or html_packaging.PlaywrightRenderer())(
+                html_content, image_path, 1920, 1080
+            )
 
-        packages.append(
-            CalendarPackage(
+        images.append(
+            CalendarImage(
                 view_type=view_type,
                 title=title,
                 date_range=_format_range(window_start, window_end),
                 event_count=len(filtered_events),
-                package_path=package_path,
-                layout_name=layout_name,
+                image_path=image_path,
+                window_start=window_start,
             )
         )
 
-    return packages
+    return images

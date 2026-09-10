@@ -3,12 +3,83 @@
 from __future__ import annotations
 
 import json
+import sys
+import types
 import zipfile
 from pathlib import Path
 
 import pytest
 
 from xibo_sync import html_packaging
+
+
+def _fake_playwright_module(error_type: type[Exception], launch_error: Exception | None = None, screenshot_error: Exception | None = None) -> types.ModuleType:
+    class FakePage:
+        def set_content(self, html_content: str, wait_until: str) -> None:
+            pass
+
+        def screenshot(self, **kwargs: object) -> None:
+            if screenshot_error is not None:
+                raise screenshot_error
+
+    class FakeBrowser:
+        def new_page(self, **kwargs: object) -> FakePage:
+            return FakePage()
+
+        def close(self) -> None:
+            pass
+
+    class FakeChromium:
+        def launch(self, **kwargs: object) -> FakeBrowser:
+            if launch_error is not None:
+                raise launch_error
+            return FakeBrowser()
+
+    class FakePlaywright:
+        chromium = FakeChromium()
+
+    class PlaywrightContext:
+        def __enter__(self) -> FakePlaywright:
+            return FakePlaywright()
+
+        def __exit__(self, *args: object) -> None:
+            pass
+
+    module = types.ModuleType("playwright.sync_api")
+    module.Error = error_type
+    module.sync_playwright = lambda: PlaywrightContext()
+    return module
+
+
+def test_playwright_renderer_reports_missing_dependency(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setitem(sys.modules, "playwright", None)
+
+    with pytest.raises(RuntimeError, match="Install scripts/requirements.txt.*playwright install chromium"):
+        html_packaging.PlaywrightRenderer()("<html></html>", tmp_path / "calendar.png", 1920, 1080)
+
+
+def test_playwright_renderer_reports_missing_browser(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    class FakePlaywrightError(Exception):
+        pass
+
+    sync_api = _fake_playwright_module(FakePlaywrightError, launch_error=FakePlaywrightError("browser missing"))
+    monkeypatch.setitem(sys.modules, "playwright", types.ModuleType("playwright"))
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", sync_api)
+
+    with pytest.raises(RuntimeError, match="could not launch Chromium.*playwright install chromium"):
+        html_packaging.PlaywrightRenderer()("<html></html>", tmp_path / "calendar.png", 1920, 1080)
+
+
+def test_playwright_renderer_reports_screenshot_write_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    class FakePlaywrightError(Exception):
+        pass
+
+    sync_api = _fake_playwright_module(FakePlaywrightError, screenshot_error=OSError("disk full"))
+    monkeypatch.setitem(sys.modules, "playwright", types.ModuleType("playwright"))
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", sync_api)
+
+    with pytest.raises(RuntimeError, match="calendar PNG rendering failed"):
+        html_packaging.PlaywrightRenderer()("<html></html>", tmp_path / "calendar.png", 1920, 1080)
 
 
 def test_render_template_substitutes_context() -> None:

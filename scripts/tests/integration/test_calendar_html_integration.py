@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import pytest
 
@@ -24,60 +25,42 @@ class FakeXiboClient:
     def health_check(self) -> None:
         self.calls.append(("health_check", None))
 
-    def upload_html_package(
-        self, file_path: Path, tags: list[str], dry_run: bool
-    ) -> Optional[dict]:
-        self.calls.append(("upload_html_package", (str(file_path), tags, dry_run)))
-        return {"mediaId": "media-101"}
+    def upload_media(self, **kwargs: Any) -> dict:
+        self.calls.append(("upload_media", kwargs))
+        return {"mediaId": "media-101", "name": kwargs["name"]}
 
-    def get_or_create_calendar_layout(
-        self, layout_name: str, resolution_id: Optional[int], dry_run: bool
-    ) -> Optional[dict]:
-        self.calls.append(("get_or_create_calendar_layout", (layout_name, resolution_id, dry_run)))
-        return {"layoutId": "layout-201", "layout": layout_name}
-
-    def assign_html_package_to_layout(
-        self, layout_id: str, media_id: str, dry_run: bool
-    ) -> None:
-        self.calls.append(("assign_html_package_to_layout", (layout_id, media_id, dry_run)))
+    def create_fullscreen_layout(self, media: dict, dry_run: bool) -> dict:
+        self.calls.append(("create_fullscreen_layout", (media, dry_run)))
+        return {"layoutId": "draft-layout-201", "layout": f'{media["name"]} fullscreen'}
 
     def publish_layout(self, layout_id: str, dry_run: bool = False) -> None:
         self.calls.append(("publish_layout", (layout_id, dry_run)))
+
+    def get_layout_by_name(self, name: str) -> dict:
+        self.calls.append(("get_layout_by_name", name))
+        return {"layoutId": "published-layout-201", "layout": name}
 
     def tag_layout(self, layout_id: str, tags: list[str], dry_run: bool = False) -> None:
         self.calls.append(("tag_layout", (layout_id, tags, dry_run)))
 
     def assign_layouts_to_displaygroup(
-        self, display_group_id: str, layout_ids: list[str], dry_run: bool = False
+        self,
+        display_group_id: str,
+        layout_ids: list[str],
+        dry_run: bool = False,
     ) -> None:
         self.calls.append(("assign_layouts_to_displaygroup", (display_group_id, layout_ids, dry_run)))
 
-    def deploy_calendar_package_to_layout(
+    def change_layout_on_displaygroup(
         self,
-        layout_name: str,
-        package_path: Path,
-        tags: list[str],
-        publish: bool,
-        assign_to_display_group_id: Optional[str],
-        immediate_show: bool,
-        dry_run: bool,
-    ) -> Optional[str]:
+        display_group_id: str,
+        layout_id: str,
+        download_required: int,
+        dry_run: bool = False,
+    ) -> None:
         self.calls.append(
-            (
-                "deploy_calendar_package_to_layout",
-                {
-                    "layout_name": layout_name,
-                    "package_path": str(package_path),
-                    "tags": tags,
-                    "publish": publish,
-                    "assign_to_display_group_id": assign_to_display_group_id,
-                    "immediate_show": immediate_show,
-                    "dry_run": dry_run,
-                },
-            )
+            ("change_layout_on_displaygroup", (display_group_id, layout_id, download_required, dry_run))
         )
-        return "layout-201"
-
 
 def _make_event(subject: str, start_iso: str, end_iso: str) -> dict:
     """Build a minimal Microsoft Graph-style calendar event."""
@@ -120,17 +103,20 @@ def _setup_env(
     monkeypatch.setenv("CALENDAR_TIMEZONE", "UTC")
     monkeypatch.setenv("CALENDAR_PACKAGE_RETENTION_DAYS", "30")
     monkeypatch.setenv("DRY_RUN", "true" if dry_run else "false")
+    monkeypatch.setenv("CREATE_LAYOUT_PER_UPLOAD", "false")
+    monkeypatch.setenv("ASSIGN_LAYOUT_ON_CHANGE", "false")
+    monkeypatch.setenv("IMMEDIATE_SHOW_ON_CHANGE", "false")
     monkeypatch.delenv("DISPLAY_GROUP_ID", raising=False)
     monkeypatch.delenv("CALENDAR_DATASET_CODE", raising=False)
     monkeypatch.delenv("TRIGGER_COLLECTNOW_ON_CHANGES", raising=False)
 
 
-def test_run_calendar_html_upload_generates_and_deploys_all_views(
+def test_run_calendar_html_upload_generates_and_uploads_all_views(
     monkeypatch: pytest.MonkeyPatch,
     calendar_snapshot_dir: Path,
     tmp_path: Path,
 ) -> None:
-    """Three packages (one per view) must be generated and each deployed."""
+    """Three images (one per view) must be generated and uploaded as media."""
     # Use the bundled template directory
     template_dir = Path(__file__).parent.parent.parent / "templates" / "calendar"
     
@@ -148,41 +134,54 @@ def test_run_calendar_html_upload_generates_and_deploys_all_views(
 
     monkeypatch.setattr(app, "XiboClient", _factory)
 
-    exit_code = app.run_calendar_html_upload(cfg, tmp_path)
+    def renderer(html: str, path: Path, width: int, height: int) -> None:
+        assert (width, height) == (1920, 1080)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"png")
+
+    exit_code = app.run_calendar_html_upload(cfg, tmp_path, renderer=renderer)
 
     assert exit_code == 0
 
     client = fake_holder["client"]
-    deploy_calls = [c for c in client.calls if c[0] == "deploy_calendar_package_to_layout"]
+    upload_calls = [c for c in client.calls if c[0] == "upload_media"]
 
-    assert len(deploy_calls) == 3, (
-        f"Expected 3 deploy calls (one per view), got {len(deploy_calls)}"
+    assert len(upload_calls) == 3, (
+        f"Expected 3 upload calls (one per view), got {len(upload_calls)}"
     )
+    required_tag_prefix = {cfg.managed_tag, "calendar-html", "calendar-image"}
+    for call in upload_calls:
+        upload = call[1]
+        filename = upload["file_path"].name
+        assert filename.startswith("calendar_") and filename.endswith(".png")
+        view_type, start_date = filename.removeprefix("calendar_").removesuffix(".png").rsplit("_", 1)
+        assert upload["tags"][:3] == [cfg.managed_tag, "calendar-html", "calendar-image"]
+        assert set(upload["tags"]) == required_tag_prefix | {f"calendar-{view_type}", start_date}
+        assert upload["file_path"].parent == (tmp_path / "../media").resolve()
+    layout_mutations = {
+        "create_fullscreen_layout",
+        "publish_layout",
+        "tag_layout",
+        "assign_layouts_to_displaygroup",
+        "change_layout_on_displaygroup",
+    }
+    assert layout_mutations.isdisjoint(name for name, _details in client.calls)
 
-    deployed_layout_names = [c[1]["layout_name"] for c in deploy_calls]
-    assert "Calendar Today" in deployed_layout_names
-    assert "Calendar This Week" in deployed_layout_names
-    assert "Calendar Next 2 Weeks" in deployed_layout_names
 
-    for call in deploy_calls:
-        args = call[1]
-        assert "calendar-html" in args["tags"]
-        assert args["publish"] is True
-        assert args["dry_run"] is False
-
-
-def test_run_calendar_html_upload_dry_run_skips_deploy(
+def test_run_calendar_html_upload_uses_normal_layout_lifecycle_when_enabled(
     monkeypatch: pytest.MonkeyPatch,
     calendar_snapshot_dir: Path,
     tmp_path: Path,
 ) -> None:
-    """In dry-run mode no deploy calls should be made."""
-    # Use the bundled template directory
+    """A generated image follows the normal layout lifecycle when enabled."""
     template_dir = Path(__file__).parent.parent.parent / "templates" / "calendar"
-    
-    _setup_env(monkeypatch, calendar_snapshot_dir, template_dir, dry_run=True)
+    _setup_env(monkeypatch, calendar_snapshot_dir, template_dir)
+    monkeypatch.setenv("CALENDAR_HTML_VIEWS", "today")
+    monkeypatch.setenv("CREATE_LAYOUT_PER_UPLOAD", "true")
+    monkeypatch.setenv("ASSIGN_LAYOUT_ON_CHANGE", "true")
+    monkeypatch.setenv("IMMEDIATE_SHOW_ON_CHANGE", "true")
+    monkeypatch.setenv("DISPLAY_GROUP_ID", "group-301")
     cfg = load_config()
-    cfg.dry_run = True
     cfg.calendar_json_path = calendar_snapshot_dir
 
     fake_holder: dict[str, FakeXiboClient] = {}
@@ -194,13 +193,142 @@ def test_run_calendar_html_upload_dry_run_skips_deploy(
 
     monkeypatch.setattr(app, "XiboClient", _factory)
 
-    exit_code = app.run_calendar_html_upload(cfg, tmp_path)
+    def renderer(html: str, path: Path, width: int, height: int) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"png")
+
+    assert app.run_calendar_html_upload(cfg, tmp_path, renderer=renderer) == 0
+
+    calls = fake_holder["client"].calls
+    call_names = [name for name, _details in calls]
+    assert call_names == [
+        "health_check",
+        "upload_media",
+        "create_fullscreen_layout",
+        "publish_layout",
+        "get_layout_by_name",
+        "tag_layout",
+        "publish_layout",
+        "get_layout_by_name",
+        "assign_layouts_to_displaygroup",
+        "change_layout_on_displaygroup",
+    ]
+
+    upload = next(details for name, details in calls if name == "upload_media")
+    assert upload["tags"][:4] == [cfg.managed_tag, "calendar-html", "calendar-image", "calendar-today"]
+    created_layout = next(details for name, details in calls if name == "create_fullscreen_layout")
+    assert created_layout[0]["name"].startswith("calendar_today_")
+    assert all(
+        details != "Calendar - Today"
+        for name, details in calls
+        if name == "get_layout_by_name"
+    )
+    tag_call = next(details for name, details in calls if name == "tag_layout")
+    assert tag_call == (
+        "published-layout-201",
+        [cfg.managed_tag, "xibo-sync-media:media-101"],
+        False,
+    )
+    assert calls[-2] == (
+        "assign_layouts_to_displaygroup",
+        ("group-301", ["published-layout-201"], False),
+    )
+    assert calls[-1] == (
+        "change_layout_on_displaygroup",
+        ("group-301", "published-layout-201", 1, False),
+    )
+
+
+def test_run_calendar_html_upload_propagates_upload_verification_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    calendar_snapshot_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Calendar uploads inherit verification failure handling from upload_media."""
+    template_dir = Path(__file__).parent.parent.parent / "templates" / "calendar"
+    _setup_env(monkeypatch, calendar_snapshot_dir, template_dir)
+    monkeypatch.setenv("CALENDAR_HTML_VIEWS", "today")
+    monkeypatch.setenv("CREATE_LAYOUT_PER_UPLOAD", "true")
+    cfg = load_config()
+    cfg.calendar_json_path = calendar_snapshot_dir
+
+    fake_holder: dict[str, FakeXiboClient] = {}
+
+    class VerificationFailureClient(FakeXiboClient):
+        def upload_media(self, **kwargs: Any) -> dict:
+            self.calls.append(("upload_media", kwargs))
+            raise RuntimeError("accepted, but mediaId=media-101 is not present in the Xibo library")
+
+    def _factory(base_url: str, verify_tls: bool, timeout: int) -> VerificationFailureClient:
+        client = VerificationFailureClient(base_url, verify_tls, timeout)
+        fake_holder["client"] = client
+        return client
+
+    monkeypatch.setattr(app, "XiboClient", _factory)
+
+    def renderer(html: str, path: Path, width: int, height: int) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"png")
+
+    with pytest.raises(RuntimeError, match="not present in the Xibo library"):
+        app.run_calendar_html_upload(cfg, tmp_path, renderer=renderer)
+
+    assert [name for name, _details in fake_holder["client"].calls] == [
+        "health_check",
+        "upload_media",
+    ]
+
+
+def test_run_calendar_html_upload_dry_run_skips_writes_and_cms(
+    monkeypatch: pytest.MonkeyPatch,
+    calendar_snapshot_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """In dry-run mode no PNGs or CMS client calls should be made."""
+    # Use the bundled template directory
+    template_dir = Path(__file__).parent.parent.parent / "templates" / "calendar"
+    
+    _setup_env(monkeypatch, calendar_snapshot_dir, template_dir, dry_run=True)
+    cfg = load_config()
+    cfg.dry_run = True
+    cfg.calendar_json_path = calendar_snapshot_dir
+
+    monkeypatch.setattr(app, "XiboClient", lambda *args: pytest.fail("dry-run must not construct client"))
+    reported: list[str] = []
+    monkeypatch.setattr(app, "ui_ok", reported.append)
+    exit_code = app.run_calendar_html_upload(cfg, tmp_path, renderer=pytest.fail)
 
     assert exit_code == 0
 
-    client = fake_holder["client"]
-    deploy_calls = [c for c in client.calls if c[0] == "deploy_calendar_package_to_layout"]
-    assert len(deploy_calls) == 0, "dry_run must not call deploy_calendar_package_to_layout"
+    assert not (tmp_path / "calendar_packages").exists()
+    expected_media_dir = (tmp_path / "../media").resolve()
+    expected_date = datetime.now(timezone.utc).date().isoformat()
+    dry_run_messages = [message for message in reported if "Would render and upload" in message]
+    assert len(dry_run_messages) == 3
+    assert all(
+        str(expected_media_dir / f"calendar_{view}_{expected_date}.png") in " ".join(dry_run_messages)
+        for view in ("today", "this_week", "next_2_weeks")
+    )
+
+
+def test_run_calendar_html_upload_renderer_failure_precedes_client_creation(
+    monkeypatch: pytest.MonkeyPatch,
+    calendar_snapshot_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """A renderer failure must stop before constructing or calling the CMS client."""
+    template_dir = Path(__file__).parent.parent.parent / "templates" / "calendar"
+    _setup_env(monkeypatch, calendar_snapshot_dir, template_dir)
+    cfg = load_config()
+    cfg.calendar_json_path = calendar_snapshot_dir
+
+    monkeypatch.setattr(app, "XiboClient", lambda *args: pytest.fail("renderer failure must precede client construction"))
+
+    def renderer(*args: Any) -> None:
+        raise RuntimeError("calendar PNG rendering failed")
+
+    with pytest.raises(RuntimeError, match="calendar PNG rendering failed"):
+        app.run_calendar_html_upload(cfg, tmp_path, renderer=renderer)
 
 
 def test_run_calendar_html_upload_fails_fast_when_view_config_missing(
@@ -248,7 +376,6 @@ def test_run_calendar_html_upload_berlin_timezone_renders_local_times(
     regardless of when the suite runs, and derives the expected local time from the
     UTC event time via zoneinfo instead of assuming a fixed CEST/CET offset.
     """
-    import zipfile
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
@@ -293,9 +420,6 @@ def test_run_calendar_html_upload_berlin_timezone_renders_local_times(
     cfg = load_config()
     cfg.calendar_json_path = calendar_dir
     
-    packages_dir = tmp_path / "packages"
-    packages_dir.mkdir()
-
     fake_holder: dict[str, FakeXiboClient] = {}
 
     def _factory(base_url: str, verify_tls: bool, timeout: int) -> FakeXiboClient:
@@ -305,23 +429,19 @@ def test_run_calendar_html_upload_berlin_timezone_renders_local_times(
 
     monkeypatch.setattr(app, "XiboClient", _factory)
 
-    exit_code = app.run_calendar_html_upload(cfg, packages_dir)
+    rendered_html: list[str] = []
+
+    def renderer(html: str, path: Path, width: int, height: int) -> None:
+        rendered_html.append(html)
+        assert (width, height) == (1920, 1080)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"png")
+
+    exit_code = app.run_calendar_html_upload(cfg, tmp_path, renderer=renderer)
 
     assert exit_code == 0
-    
-    # Find the generated .htz package for today
-    # Packages are written to <scripts_dir>/calendar_packages/ by default
-    htz_files = list((packages_dir / "calendar_packages").glob("calendar_today_*.htz"))
-    assert len(htz_files) == 1, f"Expected 1 .htz file, found {len(htz_files)} in {packages_dir / 'calendar_packages'}"
-    
-    # Extract and read the HTML from the package
-    with zipfile.ZipFile(htz_files[0]) as archive:
-        html_content = archive.read("index.html").decode("utf-8")
-    
-    # Verify the HTML contains Berlin-local time, not the raw UTC time
-    assert expected_local_time in html_content, (
-        f"Expected Berlin time {expected_local_time} in HTML, got: {html_content}"
-    )
+
+    assert expected_local_time in rendered_html[0]
     utc_time = "12:00"
     if utc_time != expected_local_time:
-        assert utc_time not in html_content or "Summer meeting" not in html_content.split(utc_time)[0]
+        assert utc_time not in rendered_html[0] or "Summer meeting" not in rendered_html[0].split(utc_time)[0]

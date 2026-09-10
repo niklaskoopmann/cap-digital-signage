@@ -1,13 +1,62 @@
-"""Generic HTML package rendering and ZIP packaging, template-agnostic."""
+"""Generic Jinja rendering and browser image rendering helpers."""
 
 from __future__ import annotations
 
 import json
 import zipfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
+
+
+class HtmlImageRenderer(Protocol):
+    """Callable boundary for converting rendered HTML into a PNG."""
+
+    def __call__(self, html_content: str, output_path: Path, width: int, height: int) -> None:
+        ...
+
+
+class PlaywrightRenderer:
+    """Render HTML with headless Chromium at the requested viewport."""
+
+    def __call__(self, html_content: str, output_path: Path, width: int, height: int) -> None:
+        try:
+            from playwright.sync_api import Error as PlaywrightError
+            from playwright.sync_api import sync_playwright
+        except ModuleNotFoundError as exc:
+            raise RuntimeError(
+                "Calendar PNG rendering requires Playwright. Install scripts/requirements.txt "
+                "and run 'playwright install chromium'."
+            ) from exc
+
+        try:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise RuntimeError(
+                f"Calendar PNG rendering failed while preparing output path {output_path}. "
+                "Check that the output directory is writable and retry."
+            ) from exc
+        try:
+            with sync_playwright() as playwright:
+                browser = playwright.chromium.launch(headless=True)
+                try:
+                    page = browser.new_page(viewport={"width": width, "height": height})
+                    page.set_content(html_content, wait_until="load")
+                    try:
+                        page.screenshot(path=str(output_path), type="png", full_page=False)
+                    except (OSError, PlaywrightError) as exc:
+                        raise RuntimeError(
+                            f"calendar PNG rendering failed while writing screenshot to {output_path}. "
+                            "Check that the output directory is writable and retry."
+                        ) from exc
+                finally:
+                    browser.close()
+        except PlaywrightError as exc:
+            raise RuntimeError(
+                "Playwright could not launch Chromium for calendar PNG rendering. "
+                "Run 'playwright install chromium' in scripts/.venv and retry."
+            ) from exc
 
 
 def render_template(
