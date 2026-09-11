@@ -261,6 +261,34 @@ class XiboClient:
                 return columns
             start += page_size
 
+    def get_dataset_data(
+        self,
+        dataset_id: str,
+        *,
+        keyword: Optional[str] = None,
+        sort_by: Optional[str] = None,
+        sort_dir: Optional[str] = None,
+    ) -> List[dict]:
+        """Read rows from a DataSet."""
+        params = {
+            key: value
+            for key, value in (
+                ("keyword", keyword),
+                ("sortBy", sort_by),
+                ("sortDir", sort_dir),
+            )
+            if value is not None
+        }
+        r = self._request("GET", self._api_url(f"/dataset/data/{dataset_id}"), params=params)
+        if r.status_code == 404:
+            return []
+        if not r.ok:
+            raise RuntimeError(f"DataSet data lookup failed ({r.status_code}): {r.text}")
+        data = self._extract_data(r.json())
+        if not isinstance(data, list) or any(not isinstance(row, dict) for row in data):
+            raise RuntimeError(f"Unexpected DataSet data format: {r.text}")
+        return data
+
     def create_dataset_column(self, dataset_id: str, heading: str, column_order: int) -> dict:
         """Create a standard text/value DataSet column."""
         payload = {

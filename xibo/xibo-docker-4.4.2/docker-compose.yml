@@ -2,7 +2,7 @@ services:
     cms-db:
         image: mysql:8.4
         volumes:
-            - "./shared/db:/var/lib/mysql:Z"
+            - "db_data:/var/lib/mysql"
         environment:
             - MYSQL_DATABASE=cms
             - MYSQL_USER=cms
@@ -10,6 +10,7 @@ services:
         mem_limit: 1g
         env_file: config.env
         restart: always
+
     cms-xmr:
         image: ghcr.io/xibosignage/xibo-xmr:1.3
         ports:
@@ -44,3 +45,15 @@ services:
     cms-quickchart:
       image: ianw/quickchart
       restart: always
+    calendar-render-service:
+        build:
+            context: ../..
+            dockerfile: scripts/calendar_render_service/Dockerfile
+        env_file: ../../scripts/calendar_render_service/.env
+        depends_on:
+            - cms-web
+        restart: always
+
+volumes:
+    db_data:
+        name: xibo-docker-442_db_data

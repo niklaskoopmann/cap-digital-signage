@@ -58,6 +58,7 @@ class Config:
     calendar_auto_publish: bool
     calendar_timezone: str
     calendar_package_retention_days: int
+    calendar_event_retention_days: int
 
 
 def getenv_bool(name: str, default: bool) -> bool:
@@ -180,4 +181,5 @@ def load_config() -> Config:
         calendar_auto_publish=getenv_bool("CALENDAR_AUTO_PUBLISH", True),
         calendar_timezone=os.getenv("CALENDAR_TIMEZONE", "Europe/Berlin").strip() or "Europe/Berlin",
         calendar_package_retention_days=getenv_int("CALENDAR_PACKAGE_RETENTION_DAYS", 30),
+        calendar_event_retention_days=getenv_int("CALENDAR_EVENT_RETENTION_DAYS", 30),
     )

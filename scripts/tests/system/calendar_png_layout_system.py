@@ -182,6 +182,7 @@ def _run_scenario(
     template_dir = isolated_scripts / "templates" / "calendar"
     snapshot_dir.mkdir(parents=True)
     media_dir.mkdir(parents=True)
+    isolated_scripts.mkdir(parents=True)
     shutil.copy2(SCRIPTS_DIR / "sync_xibo.py", isolated_scripts / "sync_xibo.py")
     shutil.copytree(SCRIPTS_DIR / "xibo_sync", isolated_scripts / "xibo_sync")
     shutil.copytree(SCRIPTS_DIR / "templates" / "calendar", template_dir)
@@ -189,7 +190,7 @@ def _run_scenario(
         json.dumps({"title": f"System Test {mode}", "window_days": 1, "layout_name": legacy_layout_name}),
         encoding="utf-8",
     )
-    (snapshot_dir / f"system_test_{token}.json").write_text(
+    (snapshot_dir / "office_calendar_events_2099-01-01_09-00-00.json").write_text(
         json.dumps(
             {
                 "value": [
@@ -276,8 +277,8 @@ def _run_scenario(
         layout_id = str(layout.get("layoutId") or layout.get("id") or "")
         assert managed_tag in _tags(layout)
         assert str(layout.get("publishedStatusId")) == "1", f"Layout is not published: {layout}"
-        assert _contains_id(api.media_layout_usage(media_id), layout_id), (
-            f"Media usage does not reference layoutId={layout_id}"
+        assert str(layout.get("backgroundImageId") or "") == media_id, (
+            f"Layout background does not reference mediaId={media_id}: {layout}"
         )
         assert "Assigning layouts" in output and "Sending changeLayout" in output
     else:

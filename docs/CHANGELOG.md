@@ -13,8 +13,9 @@ work that has already been completed.
 ## Changes
 
 ### 2026-09-10 - Host-local calendar render service for staleness fix
-- Status: `Planned`
+- Status: `Implemented`
 - Summary: Added a new Docker service on the Xibo host that reads the already-synced calendar DataSet via the Xibo CMS API and re-renders/re-uploads `today`/`this_week`/`next_2_weeks` PNGs on its own daily schedule, reusing `scripts/xibo_sync`'s upload/layout pipeline, fixing displayed calendars going stale when the uploader PC does not run for multiple days. `--upload-calendar-html` is kept unchanged as a manual/fallback path. Also fixes the current calendar DataSet upload column-mapping bug against a real export shape fixture, and adds a `CALENDAR_EVENT_RETENTION_DAYS` (default 30) cutoff enforced both at uploader import and at render-service fetch time so old events stop accumulating in the Xibo DataSet.
+- Validation: 148 offline tests passed; the WSL live harness passed both per-upload layout modes and cleanup; and the deployed container completed a real DataSet render cycle with 7 events, 3 PNGs, and 3 uploads.
 - Plan: `docs/PLAN.md`
 
 ### 2026-09-10 - Electron-compatible calendar PNG media workflow

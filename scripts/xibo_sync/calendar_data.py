@@ -6,9 +6,10 @@ import csv
 import io
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timedelta, tzinfo
 from pathlib import Path
 from typing import Any, Iterable
+from zoneinfo import ZoneInfo
 
 CALENDAR_COLUMNS = (
     "eventIdentifier",
@@ -110,6 +111,79 @@ def flatten_event(event: dict[str, Any]) -> dict[str, str]:
         "webLink": _text(event.get("webLink")),
         "lastModifiedDateTime": _text(event.get("lastModifiedDateTime")),
     }
+
+
+def dataset_row_to_event(row: dict[str, Any]) -> dict[str, str]:
+    """Convert a calendar DataSet row into the flat event shape used by the renderer."""
+    return {
+        "id": _text(row.get("eventIdentifier")),
+        "iCalUId": _text(row.get("icalUid")),
+        "subject": _text(row.get("subject")),
+        "bodyPreview": _text(row.get("bodyPreview")),
+        "bodyHtml": _text(row.get("bodyHtml")),
+        "startDateTime": _text(row.get("startDateTime")),
+        "startTimeZone": _text(row.get("startTimeZone")),
+        "endDateTime": _text(row.get("endDateTime")),
+        "endTimeZone": _text(row.get("endTimeZone")),
+        "isAllDay": _text(row.get("isAllDay")),
+        "isCancelled": _text(row.get("isCancelled")),
+        "showAs": _text(row.get("showAs")),
+        "type": _text(row.get("type")),
+        "location": _text(row.get("location")),
+        "organizer": _text(row.get("organizer")),
+        "organizerEmail": _text(row.get("organizerEmail")),
+        "webLink": _text(row.get("webLink")),
+        "lastModifiedDateTime": _text(row.get("lastModifiedDateTime")),
+    }
+
+
+def dataset_rows_to_events(rows: Iterable[dict[str, Any]]) -> list[dict[str, str]]:
+    """Convert DataSet rows keyed by :data:`CALENDAR_COLUMNS` into events."""
+    return [dataset_row_to_event(row) for row in rows]
+
+
+def _parse_event_datetime(value: str, timezone_name: str, default_timezone: tzinfo) -> datetime | None:
+    if not value:
+        return None
+    cleaned = re.sub(r"\.(\d{6})\d+", r".\1", value.strip().replace("Z", "+00:00"))
+    parsed = datetime.fromisoformat(cleaned)
+    if parsed.tzinfo is not None:
+        return parsed
+    try:
+        event_timezone = ZoneInfo(timezone_name) if timezone_name else default_timezone
+    except Exception:
+        event_timezone = default_timezone
+    return parsed.replace(tzinfo=event_timezone)
+
+
+def filter_events_by_retention(
+    events: Iterable[dict[str, Any]],
+    retention_days: int,
+    timezone: str | tzinfo,
+    *,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Drop events whose end is older than the configured retention window."""
+    reference_timezone = ZoneInfo(timezone) if isinstance(timezone, str) else timezone
+    reference_now = now or datetime.now(reference_timezone)
+    if reference_now.tzinfo is None:
+        reference_now = reference_now.replace(tzinfo=reference_timezone)
+    else:
+        reference_now = reference_now.astimezone(reference_timezone)
+    cutoff = reference_now - timedelta(days=retention_days)
+
+    retained: list[dict[str, Any]] = []
+    for event in events:
+        if "end" in event and isinstance(event.get("end"), dict):
+            end_value = _text(event["end"].get("dateTime"))
+            end_timezone = _text(event["end"].get("timeZone"))
+        else:
+            end_value = _text(event.get("endDateTime"))
+            end_timezone = _text(event.get("endTimeZone"))
+        end = _parse_event_datetime(end_value, end_timezone, reference_timezone)
+        if end is None or end.astimezone(reference_timezone) >= cutoff:
+            retained.append(event)
+    return retained
 
 
 def load_events(path: Path, include_cancelled: bool = False) -> tuple[Path, list[dict[str, str]]]:

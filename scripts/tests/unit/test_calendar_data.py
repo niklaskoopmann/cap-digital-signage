@@ -3,7 +3,18 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from xibo_sync.calendar_data import CALENDAR_COLUMNS, csv_bytes, load_events
+from datetime import datetime
+
+from xibo_sync.calendar_data import (
+    CALENDAR_COLUMNS,
+    csv_bytes,
+    dataset_rows_to_events,
+    filter_events_by_retention,
+    load_events,
+)
+
+
+FIXTURE_PATH = Path(__file__).parents[1] / "fixtures" / "office_calendar_events_sample.json"
 
 
 class CalendarDataTests(unittest.TestCase):
@@ -88,6 +99,55 @@ class CalendarDataTests(unittest.TestCase):
             self.assertEqual(rows, [])
             self.assertTrue(csv_bytes(rows).startswith(
                 ",".join(CALENDAR_COLUMNS).encode("utf-8")))
+
+    def test_real_shape_fixture_populates_every_dataset_column(self) -> None:
+        snapshot, rows = load_events(FIXTURE_PATH)
+
+        self.assertEqual(snapshot.name, FIXTURE_PATH.name)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(
+            rows[0],
+            {
+                "eventIdentifier": "AAMkAGFjZDUxZWYtZDUxYi00YzQxLTg4YzAtc2FtcGxl",
+                "icalUid": "040000008200E00074C5B7101A82E00800000000sample@example.com",
+                "subject": "Sample planning meeting",
+                "bodyPreview": "Synthetic calendar event for mapping tests.",
+                "bodyHtml": "<html><body><p>Synthetic calendar event for mapping tests.</p></body></html>",
+                "startDateTime": "2026-09-10T09:00:00.0000000",
+                "startTimeZone": "Europe/Berlin",
+                "endDateTime": "2026-09-10T10:00:00.0000000",
+                "endTimeZone": "Europe/Berlin",
+                "isAllDay": "false",
+                "isCancelled": "false",
+                "showAs": "busy",
+                "type": "singleInstance",
+                "location": "Sample conference room",
+                "organizer": "Sample Organizer",
+                "organizerEmail": "organizer@example.test",
+                "webLink": "https://outlook.office.com/calendar/item/sample",
+                "lastModifiedDateTime": "2026-09-09T08:00:00.0000000Z",
+            },
+        )
+
+    def test_dataset_rows_round_trip_to_flat_events(self) -> None:
+        _, rows = load_events(FIXTURE_PATH)
+
+        events = dataset_rows_to_events(rows)
+
+        self.assertEqual(events[0]["id"], rows[0]["eventIdentifier"])
+        self.assertEqual(events[0]["startDateTime"], rows[0]["startDateTime"])
+        self.assertEqual(events[0]["organizer"], rows[0]["organizer"])
+
+    def test_retention_filter_drops_events_older_than_cutoff(self) -> None:
+        now = datetime.fromisoformat("2026-09-10T12:00:00+00:00")
+        events = [
+            {"id": "recent", "endDateTime": "2026-09-09T12:00:00", "endTimeZone": "UTC"},
+            {"id": "old", "endDateTime": "2026-08-10T11:59:59", "endTimeZone": "UTC"},
+        ]
+
+        retained = filter_events_by_retention(events, 31, "UTC", now=now)
+
+        self.assertEqual([event["id"] for event in retained], ["recent"])
 
 
 if __name__ == "__main__":

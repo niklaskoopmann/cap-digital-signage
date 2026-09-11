@@ -1,0 +1,1 @@
+"""Host-local calendar image render service."""

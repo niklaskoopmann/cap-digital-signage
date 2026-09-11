@@ -106,6 +106,42 @@ def test_get_draft_layout_id_filters_for_drafts(monkeypatch) -> None:
     assert calls[0][2] == {"layoutId": "112", "showDrafts": 1, "publishedStatusId": 2, "length": 1}
 
 
+def test_get_dataset_data_returns_rows_and_query_options(monkeypatch) -> None:
+    client = XiboClient("http://cms", verify_tls=False, timeout=10)
+    calls = []
+
+    def request(method: str, url: str, *, params=None, **kwargs):
+        calls.append((method, url, params))
+        return _Response({"data": [{"eventIdentifier": "event-1"}]})
+
+    monkeypatch.setattr(client, "_request", request)
+
+    assert client.get_dataset_data("10", keyword="sample", sort_by="endDateTime", sort_dir="asc") == [
+        {"eventIdentifier": "event-1"}
+    ]
+    assert calls == [("GET", "http://cms/api/dataset/data/10", {
+        "keyword": "sample", "sortBy": "endDateTime", "sortDir": "asc",
+    })]
+
+
+def test_get_dataset_data_returns_empty_for_missing_dataset(monkeypatch) -> None:
+    client = XiboClient("http://cms", verify_tls=False, timeout=10)
+    response = _Response({"error": "missing"})
+    response.ok = False
+    response.status_code = 404
+    monkeypatch.setattr(client, "_request", lambda *args, **kwargs: response)
+
+    assert client.get_dataset_data("missing") == []
+
+
+def test_get_dataset_data_raises_for_malformed_response(monkeypatch) -> None:
+    client = XiboClient("http://cms", verify_tls=False, timeout=10)
+    monkeypatch.setattr(client, "_request", lambda *args, **kwargs: _Response({"data": {}}))
+
+    with pytest.raises(RuntimeError, match="Unexpected DataSet data format"):
+        client.get_dataset_data("10")
+
+
 def test_deploy_discards_stale_checkout_before_assigning(monkeypatch, tmp_path) -> None:
     client = XiboClient("http://cms", verify_tls=False, timeout=10)
     calls: list[tuple[str, str]] = []

@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import argparse
 import logging
+from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
 from rich.prompt import Confirm
 
-from .calendar_data import CALENDAR_COLUMNS, csv_bytes, load_events
+from .calendar_data import CALENDAR_COLUMNS, csv_bytes, filter_events_by_retention, load_events
 from .calendar_html import generate_calendar_images
 from .client import XiboClient, media_layout_ownership_tag
 from .config import load_config
@@ -41,13 +42,21 @@ def setup_logging(level: str, log_file: str | None, scripts_dir: Path) -> None:
     )
 
 
-def run_calendar_upload(cfg, scripts_dir: Path) -> int:
+def run_calendar_upload(cfg, scripts_dir: Path, *, now: datetime | None = None) -> int:
     """Replace the configured Xibo DataSet with the newest calendar snapshot."""
     calendar_path = cfg.calendar_json_path
     if not calendar_path.is_absolute():
         calendar_path = (scripts_dir / calendar_path).resolve()
 
     snapshot, rows = load_events(calendar_path, cfg.calendar_upload_cancelled_events)
+    retained_rows = filter_events_by_retention(
+        rows,
+        cfg.calendar_event_retention_days,
+        cfg.calendar_timezone,
+        now=now,
+    )
+    ui_info(f"Calendar retention excluded {len(rows) - len(retained_rows)} event(s)")
+    rows = retained_rows
     ui_info(f"Calendar snapshot: {snapshot}")
     ui_info(f"Calendar rows: {len(rows)} | DataSet: {cfg.calendar_dataset_name}")
     ui_info(f"Calendar columns: {len(CALENDAR_COLUMNS)}")

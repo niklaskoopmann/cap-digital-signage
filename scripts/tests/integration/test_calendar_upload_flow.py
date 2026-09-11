@@ -1,6 +1,7 @@
 """Integration test: config + calendar_data + a mocked XiboClient cooperating via app.py."""
 
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -127,3 +128,33 @@ def test_run_calendar_upload_reuses_existing_dataset_and_columns(
 
     assert "create_dataset" not in call_names  # DataSet already existed
     assert "create_dataset_column" not in call_names  # all columns already existed
+
+
+def test_run_calendar_upload_excludes_events_older_than_retention_cutoff(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    snapshot = tmp_path / "office_calendar_events_2026-08-19_13-10-01.json"
+    snapshot.write_text(json.dumps({"value": [
+        {"id": "recent", "end": {"dateTime": "2026-09-09T12:00:00", "timeZone": "UTC"}},
+        {"id": "old", "end": {"dateTime": "2026-08-01T11:59:59", "timeZone": "UTC"}},
+    ]}), encoding="utf-8")
+    cfg = _load_test_config(monkeypatch, tmp_path)
+    monkeypatch.setenv("CALENDAR_EVENT_RETENTION_DAYS", "30")
+    cfg.calendar_event_retention_days = 30
+    fake_client_holder: dict[str, FakeXiboClient] = {}
+
+    def fake_client_factory(base_url: str, verify_tls: bool, timeout: int) -> FakeXiboClient:
+        client = FakeXiboClient(base_url, verify_tls, timeout)
+        fake_client_holder["client"] = client
+        return client
+
+    monkeypatch.setattr(app, "XiboClient", fake_client_factory)
+
+    assert app.run_calendar_upload(
+        cfg,
+        tmp_path,
+        now=datetime.fromisoformat("2026-09-10T12:00:00+00:00"),
+    ) == 0
+    import_call = next(call for call in fake_client_holder["client"].calls if call[0] == "import_dataset_csv")
+    assert b"recent" in import_call[1][1]
+    assert b"old" not in import_call[1][1]

@@ -159,6 +159,7 @@ The most important entries in `scripts/.env` are:
 - `CALENDAR_DATASET_NAME`: target DataSet, default `office_calendar_events`.
 - `CALENDAR_DATASET_CODE`: optional stable DataSet code.
 - `CALENDAR_UPLOAD_CANCELLED_EVENTS`: `false` excludes cancelled events; set `true` to include them.
+- `CALENDAR_EVENT_RETENTION_DAYS`: maximum age of an event end time to retain, default `30` days.
 
 Calendar runs replace the DataSet contents. This avoids duplicates because Xibo's CSV import API
 does not support an upsert key. The uploaded schema includes `eventIdentifier` and the other
@@ -234,6 +235,27 @@ CALENDAR_PACKAGE_RETENTION_DAYS=1
 
 The bundled templates come with three views: `today`, `this_week`, and `next_2_weeks`. Their
 layout names are `Calendar Today`, `Calendar This Week`, and `Calendar Next 2 Weeks`.
+
+### Host-local daily refresh
+
+The Xibo Docker stack includes an optional `calendar-render-service` container. It reads the
+calendar DataSet populated by `--upload-calendar`, renders `today`, `this_week`, and
+`next_2_weeks` at local midnight, and uploads fresh PNG media without requiring the uploader PC
+to run each day. The existing `--upload-calendar-html` command remains available as a manual or
+fallback path.
+
+Create its environment file from `scripts/calendar_render_service/.env.example`, then start the
+stack from `xibo/xibo-docker-4.4.2`:
+
+```powershell
+Copy-Item ..\..\scripts\calendar_render_service\.env.example ..\..\scripts\calendar_render_service\.env
+docker compose up -d --build
+docker compose logs -f calendar-render-service
+```
+
+Replace the placeholder `CMS_CLIENT_ID` and `CMS_CLIENT_SECRET` with a dedicated Xibo OAuth
+client credential. Set `CMS_BASE_URL=http://cms-web` for the in-network CMS address. The service
+has no published port and uses `CALENDAR_EVENT_RETENTION_DAYS` independently from the uploader.
 
 ### Customizing Views
 

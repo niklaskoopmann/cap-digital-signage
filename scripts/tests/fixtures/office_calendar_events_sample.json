@@ -1,0 +1,76 @@
+{
+  "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users('calendar')/calendarView",
+  "value": [
+    {
+      "@odata.etag": "W/\"sample-etag\"",
+      "id": "AAMkAGFjZDUxZWYtZDUxYi00YzQxLTg4YzAtc2FtcGxl",
+      "createdDateTime": "2026-09-09T07:30:00.0000000Z",
+      "lastModifiedDateTime": "2026-09-09T08:00:00.0000000Z",
+      "changeKey": "sample-change-key",
+      "categories": [],
+      "originalStartTimeZone": "Europe/Berlin",
+      "originalEndTimeZone": "Europe/Berlin",
+      "iCalUId": "040000008200E00074C5B7101A82E00800000000sample@example.com",
+      "reminderMinutesBeforeStart": 15,
+      "isReminderOn": true,
+      "hasAttachments": false,
+      "subject": "Sample planning meeting",
+      "bodyPreview": "Synthetic calendar event for mapping tests.",
+      "importance": "normal",
+      "sensitivity": "normal",
+      "isAllDay": false,
+      "isCancelled": false,
+      "isOrganizer": true,
+      "responseRequested": true,
+      "showAs": "busy",
+      "type": "singleInstance",
+      "webLink": "https://outlook.office.com/calendar/item/sample",
+      "onlineMeetingUrl": null,
+      "isOnlineMeeting": false,
+      "onlineMeetingProvider": "unknown",
+      "allowNewTimeProposals": true,
+      "occurrenceId": null,
+      "isDraft": false,
+      "hideAttendees": false,
+      "responseStatus": {
+        "response": "organizer",
+        "time": "2026-09-09T07:30:00Z"
+      },
+      "body": {
+        "contentType": "html",
+        "content": "<html><body><p>Synthetic calendar event for mapping tests.</p></body></html>"
+      },
+      "start": {
+        "dateTime": "2026-09-10T09:00:00.0000000",
+        "timeZone": "Europe/Berlin"
+      },
+      "end": {
+        "dateTime": "2026-09-10T10:00:00.0000000",
+        "timeZone": "Europe/Berlin"
+      },
+      "location": {
+        "displayName": "Sample conference room",
+        "locationType": "default",
+        "uniqueId": "Sample conference room",
+        "uniqueIdType": "private"
+      },
+      "locations": [
+        {
+          "displayName": "Sample conference room",
+          "locationType": "default",
+          "uniqueId": "Sample conference room",
+          "uniqueIdType": "private"
+        }
+      ],
+      "organizer": {
+        "emailAddress": {
+          "name": "Sample Organizer",
+          "address": "organizer@example.test"
+        }
+      },
+      "attendees": [],
+      "recurrence": null,
+      "seriesMasterId": null
+    }
+  ]
+}

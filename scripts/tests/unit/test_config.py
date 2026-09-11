@@ -27,6 +27,7 @@ def _clear_optional_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "CALENDAR_AUTO_PUBLISH",
         "CALENDAR_TIMEZONE",
         "CALENDAR_PACKAGE_RETENTION_DAYS",
+        "CALENDAR_EVENT_RETENTION_DAYS",
         "DELETE_LAYOUT_WITH_MEDIA",
     ):
         monkeypatch.delenv(key, raising=False)
@@ -90,6 +91,15 @@ def test_load_config_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cfg.calendar_upload_cancelled_events is False
     assert cfg.dry_run is False
     assert cfg.delete_layout_with_media is False
+    assert cfg.calendar_event_retention_days == 30
+
+
+def test_load_config_calendar_event_retention_days_can_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required_env(monkeypatch, CALENDAR_EVENT_RETENTION_DAYS="14")
+
+    cfg = load_config()
+
+    assert cfg.calendar_event_retention_days == 14
 
 
 @pytest.mark.parametrize("raw", ["true", "1", "yes"])

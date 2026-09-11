@@ -376,12 +376,11 @@ def test_run_calendar_html_upload_berlin_timezone_renders_local_times(
     regardless of when the suite runs, and derives the expected local time from the
     UTC event time via zoneinfo instead of assuming a fixed CEST/CET offset.
     """
-    from datetime import datetime
+    from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
 
     berlin = ZoneInfo("Europe/Berlin")
-    today_berlin = datetime.now(berlin).date()
-    event_date = today_berlin.isoformat()
+    event_date = (datetime.now(berlin).date() + timedelta(days=1)).isoformat()
 
     utc_start = datetime.fromisoformat(f"{event_date}T12:00:00").replace(tzinfo=ZoneInfo("UTC"))
     expected_local_time = utc_start.astimezone(berlin).strftime("%H:%M")
@@ -407,7 +406,7 @@ def test_run_calendar_html_upload_berlin_timezone_renders_local_times(
     monkeypatch.setenv("LOCAL_MEDIA_DIR", "../media")
     monkeypatch.setenv("CALENDAR_JSON_PATH", str(calendar_dir))
     monkeypatch.setenv("CALENDAR_ENABLE_HTML", "true")
-    monkeypatch.setenv("CALENDAR_HTML_VIEWS", "today")
+    monkeypatch.setenv("CALENDAR_HTML_VIEWS", "this_week")
     monkeypatch.setenv("CALENDAR_TEMPLATE_DIR", str(template_dir))
     monkeypatch.setenv("CALENDAR_AUTO_PUBLISH", "true")
     monkeypatch.setenv("CALENDAR_TIMEZONE", "Europe/Berlin")  # Berlin timezone

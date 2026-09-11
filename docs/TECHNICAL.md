@@ -42,6 +42,7 @@ Both scripts load environment variables from `scripts/.env`.
 - `CALENDAR_DATASET_NAME`: Target Xibo DataSet name, default `office_calendar_events`.
 - `CALENDAR_DATASET_CODE`: Optional Xibo DataSet code used during lookup.
 - `CALENDAR_UPLOAD_CANCELLED_EVENTS`: Include cancelled events in the replacement snapshot when `true`.
+- `CALENDAR_EVENT_RETENTION_DAYS`: Drop events whose end is older than this many days (default `30`).
 - `MEDIA_EXTENSIONS`: File extensions that count as media.
 - `COMPARE_MODE`: `filename` or `hash`.
 - `MANAGED_TAG`: Tag used to mark media managed by the sync script.
@@ -115,7 +116,12 @@ would duplicate events on every run. `eventIdentifier` preserves the source even
 downstream filtering and identification. Xibo-compatible camelCase headings are used because
 the CMS rejects underscore headings and broadly rejects headings containing reserved tokens. The
 remaining physical headings use opaque `c11`-`c18` names; their source mappings are documented in
-the calendar schema. Cancelled events are excluded by default.
+the calendar schema. The stable headings are listed in `CALENDAR_COLUMNS` and include the source
+event ID, subject/body fields, start/end values and time zones, cancellation/display state,
+location, organizer, and link metadata. Cancelled events are excluded by default. The import applies
+`CALENDAR_EVENT_RETENTION_DAYS` before CSV generation, so old rows do not accumulate in the
+DataSet. `XiboClient.get_dataset_data()` reads those rows back and `dataset_rows_to_events()`
+converts the curated headings to the flat event shape consumed by the existing renderer.
 
 ### Calendar HTML images
 
@@ -207,6 +213,21 @@ Playwright is declared in `scripts/requirements.txt` and also requires its brows
 the activated `scripts/.venv`, run `playwright install chromium`. Missing package or browser
 errors identify this setup command.
 
+### Host-local calendar render service
+
+`scripts/calendar_render_service/` is a separate consumer of the calendar DataSet. It uses a
+dedicated OAuth client, reads `/dataset/data/{dataSetId}`, applies the same retention cutoff
+independently, renders the configured views, and reuses `_upload_media_with_optional_layout` for
+the existing verified media and layout lifecycle. The service waits for local midnight and runs
+once per day using the configured IANA timezone.
+
+The Docker image copies `xibo_sync`, the service package, and `templates/calendar` under `/app`.
+Its Playwright Python package and browser image are pinned to the same version so the renderer
+does not drift away from the bundled Chromium executable.
+Compose adds it to `xibo/xibo-docker-4.4.2/docker-compose.yml` with no published ports. Create
+`scripts/calendar_render_service/.env` from its `.env.example`; keep the credential file out of
+version control.
+
 #### Legacy HTZ API helpers
 
 The following older client helpers remain only for compatibility with other callers. The
@@ -269,6 +290,7 @@ CMS. Reusable calendar layouts are excluded.
 | `CALENDAR_AUTO_PUBLISH` | `true` | Legacy compatibility setting; normal per-upload layout publication is controlled by `CREATE_LAYOUT_PER_UPLOAD`. |
 | `CALENDAR_TIMEZONE` | `Europe/Berlin` | IANA timezone name used for both event filtering and display labels. Daylight saving transitions (e.g., CEST/CET for Europe/Berlin) are handled automatically by the `tzdata` package. |
 | `CALENDAR_PACKAGE_RETENTION_DAYS` | `30` | Legacy compatibility setting; no calendar package cleanup is performed by the PNG workflow. |
+| `CALENDAR_EVENT_RETENTION_DAYS` | `30` | Maximum age of event end times retained by the uploader and render service. |
 
 #### Local cleanup
 
