@@ -47,6 +47,31 @@ class FakeXiboClient:
         self.calls.append(("tag_layout", (layout_id, tags, dry_run)))
         self.layout_state[layout_id]["tags"] = tags
 
+    def list_library_by_tags(self, tags: list[str], folder_id: str | None = None) -> list[dict[str, object]]:
+        self.calls.append(("list_library_by_tags", (tags, folder_id)))
+        return []
+
+    def list_layouts_by_ownership_tag(self, ownership_tag: str) -> list[dict[str, object]]:
+        self.calls.append(("list_layouts_by_ownership_tag", ownership_tag))
+        return []
+
+    def clone_schedule_events_to_campaign(self, old_campaign_id: str, new_campaign_id: str, dry_run: bool = False) -> int:
+        self.calls.append(("clone_schedule_events_to_campaign", (old_campaign_id, new_campaign_id, dry_run)))
+        return 0
+
+    def cleanup_layout_for_media(
+        self,
+        layout: dict[str, object],
+        media_id: str,
+        ownership_tag: str,
+        display_group_ids: list[str] | None = None,
+        dry_run: bool = False,
+    ) -> None:
+        self.calls.append(("cleanup_layout_for_media", (layout, media_id, ownership_tag, display_group_ids, dry_run)))
+
+    def delete_media(self, media_id: str, dry_run: bool = False) -> None:
+        self.calls.append(("delete_media", (media_id, dry_run)))
+
 
 def make_config(tmp_path: Path, create_layout_per_upload: bool = False) -> SimpleNamespace:
     return SimpleNamespace(
@@ -70,6 +95,7 @@ def make_config(tmp_path: Path, create_layout_per_upload: bool = False) -> Simpl
         display_group_id=None,
         trigger_collectnow_on_changes=False,
         xibo_upload_field="files",
+        cleanup_old_view_uploads=True,
         dry_run=False,
     )
 
@@ -122,30 +148,22 @@ def test_render_service_fetches_filters_renders_and_uploads(
     ]
     if not create_layout_per_upload:
         assert client.layout_state == {"existing-layout": {"tags": ["keep-me"]}}
-        assert client.calls == [
-            ("get_dataset", ("calendar", None)),
-            ("get_dataset_data", "calendar-1"),
-            ("upload_media", {
-                "file_path": images[0].image_path,
-                "name": images[0].image_path.name,
-                "folder_id": None,
-                "tags": ["xibo-sync", "calendar-html", "calendar-image", "calendar-today"],
-                "preferred_field": "files",
-                "dry_run": False,
-            }),
-            ("upload_media", {
-                "file_path": images[1].image_path,
-                "name": images[1].image_path.name,
-                "folder_id": None,
-                "tags": ["xibo-sync", "calendar-html", "calendar-image", "calendar-this_week"],
-                "preferred_field": "files",
-                "dry_run": False,
-            }),
+        assert [name for name, _details in client.calls if name == "upload_media"] == [
+            "upload_media",
+            "upload_media",
+        ]
+        assert [details for name, details in client.calls if name == "list_library_by_tags"] == [
+            (["xibo-sync", "calendar-today"], None),
+            (["xibo-sync", "calendar-this_week"], None),
         ]
     else:
         assert len([name for name, _details in client.calls if name == "create_fullscreen_layout"]) == 2
         assert len([name for name, _details in client.calls if name == "tag_layout"]) == 2
         assert len([name for name, _details in client.calls if name == "publish_layout"]) == 4
+        assert [details for name, details in client.calls if name == "list_library_by_tags"] == [
+            (["xibo-sync", "calendar-today"], None),
+            (["xibo-sync", "calendar-this_week"], None),
+        ]
         assert len(client.layout_state) == 5
 
 

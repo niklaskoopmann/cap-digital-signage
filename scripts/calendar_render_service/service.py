@@ -11,9 +11,45 @@ from zoneinfo import ZoneInfo
 from xibo_sync.app import _upload_media_with_optional_layout
 from xibo_sync.calendar_data import dataset_rows_to_events, filter_events_by_retention
 from xibo_sync.calendar_html import generate_calendar_images
-from xibo_sync.client import XiboClient
+from xibo_sync.client import XiboClient, media_layout_ownership_tag
 
 from .config import Config, load_config
+
+
+def cleanup_previous_view_uploads(xibo: XiboClient, cfg: Config, view_type: str, current_media_id: str, now: datetime | None = None) -> None:
+    """Remove the previous cycle's media/layout for a given calendar view after the new one has been uploaded."""
+    if not cfg.cleanup_old_view_uploads:
+        return
+
+    required_tags = [cfg.managed_tag, f"calendar-{view_type}"]
+    for old_media in xibo.list_library_by_tags(required_tags, cfg.managed_folder_id):
+        old_media_id = str(old_media.get("mediaId") or old_media.get("id") or "")
+        if not old_media_id or old_media_id == current_media_id:
+            continue
+
+        try:
+            if cfg.create_layout_per_upload:
+                layouts = xibo.list_layouts_by_ownership_tag(media_layout_ownership_tag(old_media_id))
+                new_layouts = xibo.list_layouts_by_ownership_tag(media_layout_ownership_tag(current_media_id))
+                new_campaign_id = None
+                if new_layouts:
+                    new_campaign_id = str(new_layouts[0].get("campaignId") or new_layouts[0].get("layoutCampaignId") or "")
+                for layout in layouts:
+                    old_campaign_id = layout.get("campaignId") or layout.get("layoutCampaignId")
+                    if old_campaign_id and new_campaign_id:
+                        xibo.clone_schedule_events_to_campaign(str(old_campaign_id), str(new_campaign_id), dry_run=cfg.dry_run)
+                    xibo.cleanup_layout_for_media(
+                        layout,
+                        media_id=old_media_id,
+                        ownership_tag=media_layout_ownership_tag(old_media_id),
+                        display_group_ids=[cfg.display_group_id] if cfg.display_group_id else [],
+                        dry_run=cfg.dry_run,
+                    )
+                xibo.delete_media(old_media_id, dry_run=cfg.dry_run)
+            else:
+                xibo.delete_media(old_media_id, dry_run=cfg.dry_run)
+        except Exception:
+            logging.warning("Cleanup of old calendar item mediaId=%s for view=%s failed; will retry next cycle", old_media_id, view_type, exc_info=True)
 
 
 def run_once(cfg: Config, *, client: XiboClient | None = None, now: datetime | None = None) -> dict[str, int]:
@@ -51,7 +87,17 @@ def run_once(cfg: Config, *, client: XiboClient | None = None, now: datetime | N
     uploads = 0
     for image in images:
         tags = [cfg.managed_tag, "calendar-html", "calendar-image", f"calendar-{image.view_type}"]
-        _upload_media_with_optional_layout(xibo, cfg, file_path=image.image_path, tags=tags)
+        created = _upload_media_with_optional_layout(
+            xibo,
+            cfg,
+            file_path=image.image_path,
+            tags=tags,
+            extra_layout_tags=[f"calendar-{image.view_type}"],
+        )
+        if created and isinstance(created, dict):
+            current_media_id = str(created.get("mediaId") or created.get("id") or "")
+            if current_media_id:
+                cleanup_previous_view_uploads(xibo, cfg, image.view_type, current_media_id, now=now)
         uploads += 1
     if uploads and cfg.trigger_collectnow_on_changes and cfg.display_group_id:
         xibo.collect_now(cfg.display_group_id, dry_run=cfg.dry_run)

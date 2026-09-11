@@ -42,6 +42,7 @@ def make_config(tmp_path: Path):
         display_group_id=None,
         trigger_collectnow_on_changes=False,
         xibo_upload_field="files",
+        cleanup_old_view_uploads=True,
         dry_run=False,
     )
 
@@ -76,6 +77,97 @@ def test_run_once_skips_missing_dataset(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(client, "get_dataset", lambda name, code: None)
 
     assert service.run_once(cfg, client=client) == {"events": 0, "images": 0, "uploads": 0}
+
+
+def test_cleanup_previous_view_uploads_cleans_layout_and_media_after_schedule_clone(monkeypatch, tmp_path: Path) -> None:
+    cfg = make_config(tmp_path)
+    cfg.create_layout_per_upload = True
+    cfg.cleanup_old_view_uploads = True
+    cfg.display_group_id = "group-9"
+    old_media_id = "media-old"
+    current_media_id = "media-current"
+    old_layout = {"layoutId": "layout-old", "campaignId": "campaign-old", "tags": ["xibo-sync-media:media-old", "xibo-sync", "calendar-today"]}
+    new_layout = {"layoutId": "layout-new", "campaignId": "campaign-new", "tags": ["xibo-sync-media:media-current", "xibo-sync", "calendar-today"]}
+    calls = []
+
+    class StubXibo:
+        def list_library_by_tags(self, tags, folder_id):
+            calls.append(("list_library_by_tags", tags, folder_id))
+            return [{"mediaId": old_media_id, "tags": ["xibo-sync", "calendar-today"]}]
+
+        def list_layouts_by_ownership_tag(self, ownership_tag):
+            calls.append(("list_layouts_by_ownership_tag", ownership_tag))
+            return [old_layout] if ownership_tag == "xibo-sync-media:media-old" else [new_layout]
+
+        def clone_schedule_events_to_campaign(self, old_campaign_id, new_campaign_id, dry_run=False):
+            calls.append(("clone_schedule_events_to_campaign", old_campaign_id, new_campaign_id, dry_run))
+            return 1
+
+        def cleanup_layout_for_media(self, layout, media_id, ownership_tag, display_group_ids=None, dry_run=False):
+            calls.append(("cleanup_layout_for_media", media_id, ownership_tag, display_group_ids, dry_run))
+
+        def delete_media(self, media_id, dry_run=False):
+            calls.append(("delete_media", media_id, dry_run))
+
+    service.cleanup_previous_view_uploads(StubXibo(), cfg, "today", current_media_id)
+
+    assert ("clone_schedule_events_to_campaign", "campaign-old", "campaign-new", False) in calls
+    assert any(call[0] == "cleanup_layout_for_media" and call[1] == old_media_id for call in calls)
+    assert any(call[0] == "delete_media" and call[1] == old_media_id for call in calls)
+
+
+def test_cleanup_previous_view_uploads_handles_media_only_mode_and_flag_off(monkeypatch, tmp_path: Path) -> None:
+    cfg = make_config(tmp_path)
+    cfg.create_layout_per_upload = False
+    cfg.cleanup_old_view_uploads = True
+
+    calls = []
+
+    class StubXibo:
+        def list_library_by_tags(self, tags, folder_id):
+            return [{"mediaId": "media-old", "tags": ["xibo-sync", "calendar-today"]}]
+
+        def delete_media(self, media_id, dry_run=False):
+            calls.append(("delete_media", media_id, dry_run))
+
+    service.cleanup_previous_view_uploads(StubXibo(), cfg, "today", "media-current")
+    assert calls == [("delete_media", "media-old", False)]
+
+    cfg.cleanup_old_view_uploads = False
+    calls.clear()
+    service.cleanup_previous_view_uploads(StubXibo(), cfg, "today", "media-current")
+    assert calls == []
+
+
+def test_cleanup_previous_view_uploads_ignores_failed_old_items(monkeypatch, tmp_path: Path) -> None:
+    cfg = make_config(tmp_path)
+    cfg.create_layout_per_upload = True
+    cfg.cleanup_old_view_uploads = True
+
+    class StubXibo:
+        def list_library_by_tags(self, tags, folder_id):
+            return [
+                {"mediaId": "media-bad", "tags": ["xibo-sync", "calendar-today"]},
+                {"mediaId": "media-good", "tags": ["xibo-sync", "calendar-today"]},
+            ]
+
+        def list_layouts_by_ownership_tag(self, ownership_tag):
+            if ownership_tag == "xibo-sync-media:media-bad":
+                raise RuntimeError("bad layout")
+            return [{"layoutId": "layout-good", "campaignId": "campaign-good", "tags": ["xibo-sync-media:media-good"]}]
+
+        def clone_schedule_events_to_campaign(self, old_campaign_id, new_campaign_id, dry_run=False):
+            return 1
+
+        def cleanup_layout_for_media(self, layout, media_id, ownership_tag, display_group_ids=None, dry_run=False):
+            if media_id == "media-good":
+                return None
+            raise RuntimeError("cleanup failed")
+
+        def delete_media(self, media_id, dry_run=False):
+            pass
+
+    service.cleanup_previous_view_uploads(StubXibo(), cfg, "today", "media-current")
 
 
 def test_seconds_until_midnight() -> None:

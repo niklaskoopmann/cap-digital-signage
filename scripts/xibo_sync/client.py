@@ -366,6 +366,41 @@ class XiboClient:
         logging.info("CMS Library fetched: %d item(s).", len(items))
         return items
 
+    def list_library_by_tags(self, tags: List[str], folder_id: Optional[str]) -> List[dict]:
+        """Fetch library items that carry every required tag, exact-match on the client side."""
+        required_tags = [tag.strip() for tag in tags if isinstance(tag, str) and tag.strip()]
+        if not required_tags:
+            return []
+
+        items: List[dict] = []
+        start = 0
+        page_size = 1000
+        first_tag = required_tags[0]
+
+        while True:
+            params = {"start": start, "length": page_size, "tags": first_tag, "embed": "tags"}
+            if folder_id:
+                params["folderId"] = folder_id
+
+            r = self._request("GET", self._api_url("/library"), params=params)
+            if not r.ok:
+                raise RuntimeError(f"Library list for tags={required_tags!r} failed ({r.status_code}): {r.text}")
+
+            data = self._extract_data(r.json())
+            if not isinstance(data, list):
+                raise RuntimeError(f"Unexpected library response format for tags={required_tags!r}: {r.text}")
+
+            items.extend(
+                item for item in data
+                if isinstance(item, dict) and set(required_tags).issubset(self._tag_values(item))
+            )
+
+            if len(data) < page_size:
+                break
+            start += page_size
+
+        return items
+
     def get_library_item(self, media_id: str) -> Optional[dict]:
         """Fetch a single library item by media ID.
 
@@ -726,6 +761,121 @@ class XiboClient:
             if len(data) < 1000:
                 return events
             start += 1000
+
+    def list_schedule_events_for_campaign(self, campaign_id: str) -> List[dict]:
+        """List schedule events tied to a campaign, regardless of any explicit layoutId field."""
+        events: List[dict] = []
+        start = 0
+        while True:
+            params = {"campaignId": str(campaign_id), "eventTypeId": 1, "length": 1000}
+            if start:
+                params["start"] = start
+            r = self._request("GET", self._api_url("/schedule"), params=params)
+            if not r.ok:
+                raise RuntimeError(f"Schedule lookup for campaignId={campaign_id} failed ({r.status_code}): {r.text}")
+            data = self._extract_data(r.json())
+            if isinstance(data, dict):
+                data = data.get("schedule", data.get("events", data.get("rows", [data])))
+            if not isinstance(data, list):
+                raise RuntimeError(f"Unexpected schedule response for campaignId={campaign_id}: {r.text}")
+            events.extend(
+                event for event in data
+                if isinstance(event, dict) and self._schedule_campaign_id(event) == str(campaign_id)
+            )
+            if len(data) < 1000:
+                return events
+            start += 1000
+
+    def create_schedule_event(
+        self,
+        campaign_id: str,
+        display_group_ids: List[str],
+        from_dt: str,
+        to_dt: str,
+        is_priority: int,
+        display_order: int,
+        day_part_id: Optional[str],
+        sync_timezone: int,
+        recurrence_type: str,
+        recurrence_detail: int,
+        recurrence_range: Optional[str],
+        recurrence_repeats_on: str,
+        *,
+        dry_run: bool = False,
+    ) -> Optional[dict]:
+        """Create a layout-type schedule event against a campaign."""
+        payload: dict[str, object] = {
+            "eventTypeId": 1,
+            "campaignId": str(campaign_id),
+            "fromDt": from_dt,
+            "toDt": to_dt,
+            "isPriority": int(is_priority or 0),
+            "displayOrder": int(display_order or 0),
+            "syncTimezone": int(sync_timezone or 0),
+            "recurrenceType": recurrence_type or "None",
+            "recurrenceDetail": int(recurrence_detail or 0),
+            "recurrenceRange": recurrence_range or "",
+            "recurrenceRepeatsOn": recurrence_repeats_on or "",
+        }
+        if day_part_id not in (None, ""):
+            payload["dayPartId"] = str(day_part_id)
+        if display_group_ids:
+            payload["displayGroupIds[]"] = [str(group_id) for group_id in display_group_ids if group_id not in (None, "")]
+
+        logging.info("Creating schedule event for campaignId=%s ...", campaign_id)
+        if dry_run:
+            logging.info("[DRY_RUN] Would create schedule event for campaignId=%s", campaign_id)
+            return None
+
+        r = self._request("POST", self._api_url("/schedule"), data=payload)
+        if not r.ok:
+            raise RuntimeError(f"Create schedule event for campaignId={campaign_id} failed ({r.status_code}): {r.text}")
+        data = self._extract_data(r.json())
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Unexpected schedule creation response for campaignId={campaign_id}: {r.text}")
+        return data
+
+    def clone_schedule_events_to_campaign(self, old_campaign_id: str, new_campaign_id: str, dry_run: bool = False) -> int:
+        """Clone all schedule events from one campaign onto another and delete the originals."""
+        cloned = 0
+        for event in self.list_schedule_events_for_campaign(str(old_campaign_id)):
+            try:
+                display_group_ids: List[str] = []
+                for group in event.get("displayGroups") or []:
+                    if isinstance(group, dict):
+                        group_id = group.get("displayGroupId") or group.get("id") or group.get("displayGroup")
+                    else:
+                        group_id = group
+                    if group_id not in (None, ""):
+                        display_group_ids.append(str(group_id))
+
+                self.create_schedule_event(
+                    campaign_id=str(new_campaign_id),
+                    display_group_ids=display_group_ids,
+                    from_dt=event.get("fromDt") or "",
+                    to_dt=event.get("toDt") or "",
+                    is_priority=int(event.get("isPriority") or 0),
+                    display_order=int(event.get("displayOrder") or 0),
+                    day_part_id=event.get("dayPartId"),
+                    sync_timezone=int(event.get("syncTimezone") or 0),
+                    recurrence_type=event.get("recurrenceType") or "None",
+                    recurrence_detail=int(event.get("recurrenceDetail") or 0),
+                    recurrence_range=event.get("recurrenceRange") or "",
+                    recurrence_repeats_on=event.get("recurrenceRepeatsOn") or "",
+                    dry_run=dry_run,
+                )
+                event_id = str(event.get("eventId") or event.get("scheduleId") or event.get("id") or "")
+                if event_id:
+                    self.delete_schedule_event(event_id, dry_run=dry_run)
+                cloned += 1
+            except Exception:
+                logging.warning(
+                    "Failed to clone schedule event from campaignId=%s to %s; leaving old event in place for retry",
+                    old_campaign_id,
+                    new_campaign_id,
+                    exc_info=True,
+                )
+        return cloned
 
     def delete_schedule_event(self, event_id: str, dry_run: bool = False) -> None:
         """Delete one schedule event, honoring dry-run mode."""

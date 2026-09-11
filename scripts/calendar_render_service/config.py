@@ -26,6 +26,7 @@ class Config:
     managed_tag: str
     managed_folder_id: str | None
     create_layout_per_upload: bool
+    cleanup_old_view_uploads: bool
     assign_layout_on_change: bool
     immediate_show_on_change: bool
     display_group_id: str | None
@@ -68,6 +69,7 @@ def load_config() -> Config:
         managed_tag=os.getenv("MANAGED_TAG", "xibo-sync").strip(),
         managed_folder_id=os.getenv("MANAGED_FOLDER_ID", "").strip() or None,
         create_layout_per_upload=getenv_bool("CREATE_LAYOUT_PER_UPLOAD", False),
+        cleanup_old_view_uploads=getenv_bool("CALENDAR_CLEANUP_OLD_VIEW_UPLOADS", True),
         assign_layout_on_change=getenv_bool("ASSIGN_LAYOUT_ON_CHANGE", False),
         immediate_show_on_change=getenv_bool("IMMEDIATE_SHOW_ON_CHANGE", False),
         display_group_id=os.getenv("DISPLAY_GROUP_ID", "").strip() or None,

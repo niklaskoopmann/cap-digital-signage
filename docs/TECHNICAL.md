@@ -228,6 +228,16 @@ Compose adds it to `xibo/xibo-docker-4.4.2/docker-compose.yml` with no published
 `scripts/calendar_render_service/.env` from its `.env.example`; keep the credential file out of
 version control.
 
+Each daily cycle fetches the configured calendar DataSet, filters it by the retention window, renders
+the configured views, and uploads each image through the shared media/layout workflow. The service
+does not rely on the rotating filename or `mediaId` as a stable identity: every uploaded media item
+and the layout created for it is tagged with both the managed tag and a stable per-view tag such as
+`calendar-today`. After a new upload is published, the service looks for older media/layouts that share
+that same per-view tag and removes them, cloning any explicit Xibo schedule events from the old
+layout's campaign onto the new campaign before the old layout and media are deleted. This keeps the
+calendar view current without losing an operator-managed manual schedule that was attached to the
+previous layout.
+
 #### Legacy HTZ API helpers
 
 The following older client helpers remain only for compatibility with other callers. The

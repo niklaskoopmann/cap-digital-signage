@@ -277,6 +277,7 @@ def _upload_media_with_optional_layout(
     *,
     file_path: Path,
     tags: list[str],
+    extra_layout_tags: list[str] | None = None,
 ):
     """Upload one media file and run the configured full-screen layout lifecycle."""
     created = xibo.upload_media(
@@ -324,7 +325,10 @@ def _upload_media_with_optional_layout(
         layout_id,
         ownership_tag,
     )
-    xibo.tag_layout(layout_id, [cfg.managed_tag, ownership_tag], dry_run=cfg.dry_run)
+    layout_tags = [cfg.managed_tag, ownership_tag]
+    if extra_layout_tags:
+        layout_tags.extend(extra_layout_tags)
+    xibo.tag_layout(layout_id, layout_tags, dry_run=cfg.dry_run)
 
     layout_id = _publish_and_resolve_layout(xibo, layout_id, layout_name, media_id, cfg.dry_run)
 

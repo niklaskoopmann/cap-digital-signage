@@ -12,6 +12,12 @@ work that has already been completed.
 
 ## Changes
 
+### 2026-09-11 - Calendar render service old-layout cleanup and schedule inheritance
+- Status: `Implemented`
+- Summary: Extends the host-local calendar render service so each daily cycle also finds the previous cycle's layout/media for the same view (via a stable per-view tag), clones forward any explicit Xibo schedule events attached to the old layout onto the new one, then removes the old layout, its schedule events, its display group assignment, and its media, gated by a new opt-out flag. Cleanup failures are isolated per item and do not fail the cycle.
+- Validation: `scripts/.venv` test suite passed with `python -m pytest` for the full repo after the render-service cleanup fix and related documentation updates.
+- Plan: `docs/PLAN.md`
+
 ### 2026-09-10 - Host-local calendar render service for staleness fix
 - Status: `Implemented`
 - Summary: Added a new Docker service on the Xibo host that reads the already-synced calendar DataSet via the Xibo CMS API and re-renders/re-uploads `today`/`this_week`/`next_2_weeks` PNGs on its own daily schedule, reusing `scripts/xibo_sync`'s upload/layout pipeline, fixing displayed calendars going stale when the uploader PC does not run for multiple days. `--upload-calendar-html` is kept unchanged as a manual/fallback path. Also fixes the current calendar DataSet upload column-mapping bug against a real export shape fixture, and adds a `CALENDAR_EVENT_RETENTION_DAYS` (default 30) cutoff enforced both at uploader import and at render-service fetch time so old events stop accumulating in the Xibo DataSet.

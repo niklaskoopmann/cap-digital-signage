@@ -206,6 +206,9 @@ The calendar HTML generation is configured by environment variables in `scripts/
 # Enable calendar HTML image generation
 CALENDAR_ENABLE_HTML=true
 
+# Remove the previous cycle's media/layout for the same view after each new upload.
+CALENDAR_CLEANUP_OLD_VIEW_UPLOADS=true
+
 # Views to generate (comma-separated)
 CALENDAR_HTML_VIEWS=today,this_week,next_2_weeks
 
