@@ -206,7 +206,7 @@ def filter_events_by_view(
             continue
 
         if normalized.timezone_name and normalized.timezone_name != getattr(reference_timezone, "key", normalized.timezone_name):
-            logging.warning(
+            logging.info(
                 "Calendar event timezone '%s' differs from configured timezone '%s'; converting to configured timezone for display",
                 normalized.timezone_name,
                 getattr(reference_timezone, "key", str(reference_timezone)),
