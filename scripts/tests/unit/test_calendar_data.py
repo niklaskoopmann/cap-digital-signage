@@ -119,8 +119,8 @@ class CalendarDataTests(unittest.TestCase):
                 "endTimeZone": "Europe/Berlin",
                 "isAllDay": "false",
                 "isCancelled": "false",
-                "showAs": "busy",
-                "type": "singleInstance",
+                "availability": "busy",
+                "eventType": "singleInstance",
                 "location": "Sample conference room",
                 "organizer": "Sample Organizer",
                 "organizerEmail": "organizer@example.test",
@@ -137,6 +137,22 @@ class CalendarDataTests(unittest.TestCase):
         self.assertEqual(events[0]["id"], rows[0]["eventIdentifier"])
         self.assertEqual(events[0]["startDateTime"], rows[0]["startDateTime"])
         self.assertEqual(events[0]["organizer"], rows[0]["organizer"])
+
+    def test_dataset_rows_support_legacy_calendar_column_names(self) -> None:
+        events = dataset_rows_to_events(
+            [
+                {
+                    "eventIdentifier": "legacy-event",
+                    "c14": "Legacy Room",
+                    "c15": "Legacy Organizer",
+                    "c16": "legacy@example.test",
+                }
+            ]
+        )
+
+        self.assertEqual(events[0]["location"], "Legacy Room")
+        self.assertEqual(events[0]["organizer"], "Legacy Organizer")
+        self.assertEqual(events[0]["organizerEmail"], "legacy@example.test")
 
     def test_retention_filter_drops_events_older_than_cutoff(self) -> None:
         now = datetime.fromisoformat("2026-09-10T12:00:00+00:00")

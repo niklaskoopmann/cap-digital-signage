@@ -307,6 +307,40 @@ class XiboClient:
             raise RuntimeError(f"Unexpected DataSet column creation format: {r.text}")
         return data
 
+    def update_dataset_column(self, dataset_id: str, column: dict, heading: str, column_order: int) -> dict:
+        """Rename a standard text/value DataSet column while preserving its ID and data."""
+        column_id = str(column.get("dataSetColumnId") or column.get("id") or "")
+        if not column_id:
+            raise RuntimeError(f"DataSet column response did not include an ID: {column}")
+        payload = {
+            "heading": heading,
+            "columnOrder": column_order,
+            "dataTypeId": column.get("dataTypeId", 1),
+            "dataSetColumnTypeId": column.get("dataSetColumnTypeId", 1),
+            "showFilter": column.get("showFilter", 0),
+            "showSort": column.get("showSort", 0),
+        }
+        r = self._request(
+            "PUT",
+            self._api_url(f"/dataset/{dataset_id}/column/{column_id}"),
+            data=payload,
+        )
+        if not r.ok:
+            raise RuntimeError(f"DataSet column update failed ({r.status_code}): {r.text}")
+        data = self._extract_data(r.json())
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Unexpected DataSet column update format: {r.text}")
+        return data
+
+    def delete_dataset_column(self, dataset_id: str, column: dict) -> None:
+        """Delete an obsolete DataSet column after its replacement is populated."""
+        column_id = str(column.get("dataSetColumnId") or column.get("id") or "")
+        if not column_id:
+            raise RuntimeError(f"DataSet column response did not include an ID: {column}")
+        r = self._request("DELETE", self._api_url(f"/dataset/{dataset_id}/column/{column_id}"))
+        if not r.ok:
+            raise RuntimeError(f"DataSet column deletion failed ({r.status_code}): {r.text}")
+
     def import_dataset_csv(self, dataset_id: str, csv_content: bytes, column_ids: List[str]) -> None:
         """Replace all DataSet rows using a header-bearing CSV snapshot."""
         fields = {

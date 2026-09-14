@@ -115,10 +115,13 @@ intentional: Xibo's CSV import endpoint has no unique-key/upsert option, so appe
 would duplicate events on every run. `eventIdentifier` preserves the source event ID for
 downstream filtering and identification. Xibo-compatible camelCase headings are used because
 the CMS rejects underscore headings and broadly rejects headings containing reserved tokens. The
-remaining physical headings use opaque `c11`-`c18` names; their source mappings are documented in
-the calendar schema. The stable headings are listed in `CALENDAR_COLUMNS` and include the source
-event ID, subject/body fields, start/end values and time zones, cancellation/display state,
-location, organizer, and link metadata. Cancelled events are excluded by default. The import applies
+the stable headings are listed in `CALENDAR_COLUMNS` and include the source event ID, subject/body
+fields, start/end values and time zones, cancellation/display state, location, organizer, and link
+metadata. Existing DataSets created by older versions are migrated in place from positional
+`c11`-`c18` headings to these speaking names, preserving their column IDs and data. The schema uses
+`availability` and `eventType` instead of the reserved `showAs` and `type` headings. Obsolete alias
+columns are removed after the replacement columns are populated. Cancelled events are excluded by
+default. The import applies
 `CALENDAR_EVENT_RETENTION_DAYS` before CSV generation, so old rows do not accumulate in the
 DataSet. `XiboClient.get_dataset_data()` reads those rows back and `dataset_rows_to_events()`
 converts the curated headings to the flat event shape consumed by the existing renderer.

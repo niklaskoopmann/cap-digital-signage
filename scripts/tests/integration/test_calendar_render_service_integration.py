@@ -112,6 +112,8 @@ def test_render_service_fetches_filters_renders_and_uploads(
             "subject": "Keep",
             "endDateTime": "2026-09-09T12:00:00",
             "endTimeZone": "UTC",
+            "location": "Conference Room",
+            "organizer": "Alex Organizer",
         },
         {
             "eventIdentifier": "old",
@@ -141,6 +143,8 @@ def test_render_service_fetches_filters_renders_and_uploads(
 
     assert result == {"events": 1, "images": 2, "uploads": 2}
     assert [event["id"] for event in render_calls[0][0]] == ["recent"]
+    assert render_calls[0][0][0]["location"] == "Conference Room"
+    assert render_calls[0][0][0]["organizer"] == "Alex Organizer"
     assert render_calls[0][1] == ["today", "this_week"]
     assert [name for name, _details in client.calls if name == "upload_media"] == [
         "upload_media",

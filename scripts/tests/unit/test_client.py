@@ -124,6 +124,55 @@ def test_get_dataset_data_returns_rows_and_query_options(monkeypatch) -> None:
     })]
 
 
+def test_update_dataset_column_renames_existing_column(monkeypatch) -> None:
+    client = XiboClient("http://cms", verify_tls=False, timeout=10)
+    calls = []
+
+    def request(method: str, url: str, *, data=None, **kwargs):
+        calls.append((method, url, data))
+        return _Response({"data": {"dataSetColumnId": "14", "heading": "location"}})
+
+    monkeypatch.setattr(client, "_request", request)
+
+    result = client.update_dataset_column(
+        "10",
+        {"dataSetColumnId": "14", "dataTypeId": 1, "dataSetColumnTypeId": 1},
+        "location",
+        14,
+    )
+
+    assert result["heading"] == "location"
+    assert calls == [
+        (
+            "PUT",
+            "http://cms/api/dataset/10/column/14",
+            {
+                "heading": "location",
+                "columnOrder": 14,
+                "dataTypeId": 1,
+                "dataSetColumnTypeId": 1,
+                "showFilter": 0,
+                "showSort": 0,
+            },
+        )
+    ]
+
+
+def test_delete_dataset_column_deletes_existing_column(monkeypatch) -> None:
+    client = XiboClient("http://cms", verify_tls=False, timeout=10)
+    calls = []
+
+    def request(method: str, url: str, **kwargs):
+        calls.append((method, url))
+        return _Response({})
+
+    monkeypatch.setattr(client, "_request", request)
+
+    client.delete_dataset_column("10", {"dataSetColumnId": "14"})
+
+    assert calls == [("DELETE", "http://cms/api/dataset/10/column/14")]
+
+
 def test_get_dataset_data_returns_empty_for_missing_dataset(monkeypatch) -> None:
     client = XiboClient("http://cms", verify_tls=False, timeout=10)
     response = _Response({"error": "missing"})

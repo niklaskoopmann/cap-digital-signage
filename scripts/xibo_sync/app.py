@@ -10,7 +10,13 @@ from pathlib import Path
 from dotenv import load_dotenv
 from rich.prompt import Confirm
 
-from .calendar_data import CALENDAR_COLUMNS, csv_bytes, filter_events_by_retention, load_events
+from .calendar_data import (
+    CALENDAR_COLUMNS,
+    LEGACY_COLUMN_ALIASES,
+    csv_bytes,
+    filter_events_by_retention,
+    load_events,
+)
 from .calendar_html import generate_calendar_images
 from .client import XiboClient, media_layout_ownership_tag
 from .config import load_config
@@ -89,17 +95,44 @@ def run_calendar_upload(cfg, scripts_dir: Path, *, now: datetime | None = None) 
         for column in columns
         if column.get("heading")
     }
+    columns_by_heading_lower = {
+        str(column.get("heading", "")).lower(): column
+        for column in columns
+        if column.get("heading")
+    }
     column_ids: list[str] = []
     for order, heading in enumerate(CALENDAR_COLUMNS, 1):
         column = columns_by_heading.get(heading)
         if column is None:
-            column = xibo.create_dataset_column(dataset_id, heading, order)
+            column = next(
+                (
+                    columns_by_heading_lower[alias.lower()]
+                    for alias in LEGACY_COLUMN_ALIASES.get(heading, ())
+                    if alias.lower() in columns_by_heading_lower
+                ),
+                None,
+            )
+            if column is not None:
+                column = xibo.update_dataset_column(dataset_id, column, heading, order)
+            else:
+                column = xibo.create_dataset_column(dataset_id, heading, order)
         column_id = str(column.get("dataSetColumnId") or column.get("id") or "")
         if not column_id:
             raise RuntimeError(f"DataSet column response did not include an ID: {column}")
         column_ids.append(column_id)
 
     xibo.import_dataset_csv(dataset_id, csv_bytes(rows), column_ids)
+    canonical_headings = {heading.lower() for heading in CALENDAR_COLUMNS}
+    used_column_ids = set(column_ids)
+    for column in columns:
+        heading = str(column.get("heading", ""))
+        column_id = str(column.get("dataSetColumnId") or column.get("id") or "")
+        if (
+            heading.lower() in {alias.lower() for aliases in LEGACY_COLUMN_ALIASES.values() for alias in aliases}
+            and heading.lower() not in canonical_headings
+            and column_id not in used_column_ids
+        ):
+            xibo.delete_dataset_column(dataset_id, column)
     ui_ok(f"Replaced DataSet rows: {len(rows)}")
 
     if cfg.trigger_collectnow_on_changes and cfg.display_group_id:

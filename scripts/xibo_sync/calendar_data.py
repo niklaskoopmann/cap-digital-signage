@@ -23,15 +23,25 @@ CALENDAR_COLUMNS = (
     "endTimeZone",
     "isAllDay",
     "isCancelled",
-    "showAs",
-    "type",
+    "availability",
+    "eventType",
     "location",
     "organizer",
     "organizerEmail",
     "webLink",
     "lastModifiedDateTime",
-    
 )
+
+LEGACY_COLUMN_ALIASES = {
+    "isCancelled": ("c11", "cancelledFlag", "calCancelled"),
+    "availability": ("c12", "showAs", "calAvailability"),
+    "eventType": ("c13", "type", "calEventType"),
+    "location": ("c14",),
+    "organizer": ("c15",),
+    "organizerEmail": ("c16",),
+    "webLink": ("c17",),
+    "lastModifiedDateTime": ("c18",),
+}
 
 _SNAPSHOT_NAME = re.compile(
     r"^office_calendar_events_(?P<timestamp>\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.json$",
@@ -103,8 +113,8 @@ def flatten_event(event: dict[str, Any]) -> dict[str, str]:
         "endTimeZone": _text(_nested(event, "end", "timeZone")),
         "isAllDay": _text(event.get("isAllDay")),
         "isCancelled": _text(event.get("isCancelled")),
-        "showAs": _text(event.get("showAs")),
-        "type": _text(event.get("type")),
+        "availability": _text(event.get("showAs", event.get("availability"))),
+        "eventType": _text(event.get("type", event.get("eventType"))),
         "location": _text(_nested(event, "location", "displayName")),
         "organizer": _text(organizer_name),
         "organizerEmail": _text(organizer_email),
@@ -129,11 +139,13 @@ def dataset_row_to_event(row: dict[str, Any]) -> dict[str, str]:
         "isCancelled": _text(row.get("isCancelled")),
         "showAs": _text(row.get("showAs")),
         "type": _text(row.get("type")),
-        "location": _text(row.get("location")),
-        "organizer": _text(row.get("organizer")),
-        "organizerEmail": _text(row.get("organizerEmail")),
-        "webLink": _text(row.get("webLink")),
-        "lastModifiedDateTime": _text(row.get("lastModifiedDateTime")),
+        "availability": _text(row.get("availability") or row.get("showAs") or row.get("c12") or row.get("calAvailability")),
+        "eventType": _text(row.get("eventType") or row.get("type") or row.get("c13") or row.get("calEventType")),
+        "location": _text(row.get("location") or row.get("c14")),
+        "organizer": _text(row.get("organizer") or row.get("c15")),
+        "organizerEmail": _text(row.get("organizerEmail") or row.get("c16")),
+        "webLink": _text(row.get("webLink") or row.get("c17")),
+        "lastModifiedDateTime": _text(row.get("lastModifiedDateTime") or row.get("c18")),
     }
 
 

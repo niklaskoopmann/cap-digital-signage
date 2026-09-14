@@ -12,6 +12,11 @@ work that has already been completed.
 
 ## Changes
 
+### 2026-09-14 - Use speaking names for calendar DataSet columns
+- Status: `Implemented`
+- Summary: The main calendar uploader now migrates legacy positional `c11`-`c18` DataSet headings to speaking names in place, uses safe names `availability` and `eventType` instead of reserved `showAs` and `type`, and removes obsolete aliases after import while preserving canonical column IDs and data.
+- Plan: `docs/PLAN.md`
+
 ### 2026-09-14 - Calendar render service logging and startup run
 - Status: `Implemented`
 - Summary: The calendar render service now configures console logging (level via `LOG_LEVEL`, default `INFO`) so cycle progress, warnings, and failures reach the container logs, and runs an initial render/upload cycle immediately on startup or restart instead of only waiting for the next local-midnight schedule.

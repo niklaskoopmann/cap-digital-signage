@@ -36,6 +36,15 @@ class FakeXiboClient:
         self.calls.append(("create_dataset_column", (dataset_id, heading, column_order)))
         return {"dataSetColumnId": f"col-{column_order}"}
 
+    def update_dataset_column(
+        self, dataset_id: str, column: dict, heading: str, column_order: int
+    ) -> dict:
+        self.calls.append(("update_dataset_column", (dataset_id, column, heading, column_order)))
+        return {"dataSetColumnId": column["dataSetColumnId"], "heading": heading}
+
+    def delete_dataset_column(self, dataset_id: str, column: dict) -> None:
+        self.calls.append(("delete_dataset_column", (dataset_id, column)))
+
     def import_dataset_csv(self, dataset_id: str, csv_content: bytes, column_ids: list[str]) -> None:
         self.calls.append(("import_dataset_csv", (dataset_id, csv_content, column_ids)))
 
@@ -128,6 +137,52 @@ def test_run_calendar_upload_reuses_existing_dataset_and_columns(
 
     assert "create_dataset" not in call_names  # DataSet already existed
     assert "create_dataset_column" not in call_names  # all columns already existed
+
+
+def test_run_calendar_upload_renames_legacy_columns(
+    monkeypatch: pytest.MonkeyPatch, calendar_snapshot_dir: Path
+) -> None:
+    cfg = _load_test_config(monkeypatch, calendar_snapshot_dir)
+
+    class LegacyFakeXiboClient(FakeXiboClient):
+        def get_dataset(self, name: str, code: str | None = None) -> dict | None:
+            self.calls.append(("get_dataset", (name, code)))
+            return {"dataSetId": "legacy-10"}
+
+        def list_dataset_columns(self, dataset_id: str) -> list[dict]:
+            self.calls.append(("list_dataset_columns", dataset_id))
+            return [
+                {"heading": f"c{order}", "dataSetColumnId": f"legacy-col-{order}"}
+                for order in range(1, 19)
+            ] + [
+                {"heading": "isCancelled", "dataSetColumnId": "canonical-cancelled"},
+                {"heading": "calCancelled", "dataSetColumnId": "obsolete-cancelled"},
+                {"heading": "calAvailability", "dataSetColumnId": "obsolete-availability"},
+                {"heading": "calEventType", "dataSetColumnId": "obsolete-event-type"},
+            ]
+
+    fake_client_holder: dict[str, LegacyFakeXiboClient] = {}
+
+    def fake_client_factory(base_url: str, verify_tls: bool, timeout: int) -> LegacyFakeXiboClient:
+        client = LegacyFakeXiboClient(base_url, verify_tls, timeout)
+        fake_client_holder["client"] = client
+        return client
+
+    monkeypatch.setattr(app, "XiboClient", fake_client_factory)
+
+    assert app.run_calendar_upload(cfg, calendar_snapshot_dir) == 0
+
+    updates = [details for name, details in fake_client_holder["client"].calls if name == "update_dataset_column"]
+    assert [details[2] for details in updates] == [
+        "availability", "eventType", "location", "organizer", "organizerEmail",
+        "webLink", "lastModifiedDateTime",
+    ]
+    creates = [name for name, _details in fake_client_holder["client"].calls if name == "create_dataset_column"]
+    assert len(creates) == 10
+    deletes = [details for name, details in fake_client_holder["client"].calls if name == "delete_dataset_column"]
+    assert [details[1]["heading"] for details in deletes] == [
+        "c11", "calCancelled", "calAvailability", "calEventType",
+    ]
 
 
 def test_run_calendar_upload_excludes_events_older_than_retention_cutoff(
