@@ -12,6 +12,11 @@ work that has already been completed.
 
 ## Changes
 
+### 2026-09-14 - Calendar render service logging and startup run
+- Status: `Implemented`
+- Summary: The calendar render service now configures console logging (level via `LOG_LEVEL`, default `INFO`) so cycle progress, warnings, and failures reach the container logs, and runs an initial render/upload cycle immediately on startup or restart instead of only waiting for the next local-midnight schedule.
+- Plan: `docs/PLAN.md`
+
 ### 2026-09-11 - Calendar render service old-layout cleanup and schedule inheritance
 - Status: `Implemented`
 - Summary: Extends the host-local calendar render service so each daily cycle also finds the previous cycle's layout/media for the same view (via a stable per-view tag), clones forward any explicit Xibo schedule events attached to the old layout onto the new one, then removes the old layout, its schedule events, its display group assignment, and its media, gated by a new opt-out flag. Cleanup failures are isolated per item and do not fail the cycle.

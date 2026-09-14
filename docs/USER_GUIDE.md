@@ -244,8 +244,9 @@ layout names are `Calendar Today`, `Calendar This Week`, and `Calendar Next 2 We
 The Xibo Docker stack includes an optional `calendar-render-service` container. It reads the
 calendar DataSet populated by `--upload-calendar`, renders `today`, `this_week`, and
 `next_2_weeks` at local midnight, and uploads fresh PNG media without requiring the uploader PC
-to run each day. The existing `--upload-calendar-html` command remains available as a manual or
-fallback path.
+to run each day. It also runs one render/upload cycle immediately when the container starts or
+restarts, so a restart does not have to wait until the next midnight to refresh stale calendars.
+The existing `--upload-calendar-html` command remains available as a manual or fallback path.
 
 Create its environment file from `scripts/calendar_render_service/.env.example`, then start the
 stack from `xibo/xibo-docker-4.4.2`:

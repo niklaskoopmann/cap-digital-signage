@@ -16,6 +16,14 @@ from xibo_sync.client import XiboClient, media_layout_ownership_tag
 from .config import Config, load_config
 
 
+def setup_logging(level: str) -> None:
+    """Configure console logging so cycle progress and warnings reach the container logs."""
+    logging.basicConfig(
+        level=getattr(logging, level, logging.INFO),
+        format="%(asctime)s | %(levelname)s | %(message)s",
+    )
+
+
 def cleanup_previous_view_uploads(xibo: XiboClient, cfg: Config, view_type: str, current_media_id: str, now: datetime | None = None) -> None:
     """Remove the previous cycle's media/layout for a given calendar view after the new one has been uploaded."""
     if not cfg.cleanup_old_view_uploads:
@@ -121,7 +129,13 @@ def run_forever(
     now_fn=datetime.now,
     sleep_fn=time.sleep,
 ) -> None:
-    """Run the job at local midnight, with failures isolated to one cycle."""
+    """Run the job immediately on startup/restart, then daily at local midnight, isolating failures to one cycle."""
+    logging.info("Calendar render service starting; running an initial cycle before the daily schedule")
+    try:
+        job(cfg, now=now_fn())
+    except Exception:
+        logging.exception("Initial calendar render cycle failed; continuing to the daily schedule")
+
     delay = seconds_until_midnight(now_fn(), cfg.calendar_timezone)
     while True:
         sleep_fn(delay)
@@ -134,6 +148,7 @@ def run_forever(
 
 def main() -> None:
     cfg = load_config()
+    setup_logging(cfg.log_level)
     run_forever(cfg)
 
 

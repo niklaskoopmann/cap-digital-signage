@@ -26,6 +26,7 @@ def test_service_config_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cfg.calendar_html_views == ("today", "this_week", "next_2_weeks")
     assert cfg.schedule_seconds == 86400
     assert cfg.cleanup_old_view_uploads is True
+    assert cfg.log_level == "INFO"
 
 
 def test_service_config_override_cleanup_flag(monkeypatch: pytest.MonkeyPatch) -> None:

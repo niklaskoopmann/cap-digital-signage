@@ -33,6 +33,7 @@ class Config:
     trigger_collectnow_on_changes: bool
     xibo_upload_field: str
     schedule_seconds: int
+    log_level: str
     dry_run: bool = False
 
 
@@ -76,4 +77,5 @@ def load_config() -> Config:
         trigger_collectnow_on_changes=getenv_bool("TRIGGER_COLLECTNOW_ON_CHANGES", True),
         xibo_upload_field=os.getenv("XIBO_UPLOAD_FIELD", "files").strip(),
         schedule_seconds=schedule_seconds,
+        log_level=os.getenv("LOG_LEVEL", "INFO").strip().upper() or "INFO",
     )

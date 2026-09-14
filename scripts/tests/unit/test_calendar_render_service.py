@@ -176,6 +176,19 @@ def test_seconds_until_midnight() -> None:
     assert service.seconds_until_midnight(now, "UTC") == 1800
 
 
+def test_setup_logging_configures_root_logger_level(monkeypatch) -> None:
+    captured = {}
+    monkeypatch.setattr(
+        service.logging,
+        "basicConfig",
+        lambda **kwargs: captured.update(kwargs),
+    )
+
+    service.setup_logging("DEBUG")
+
+    assert captured["level"] == service.logging.DEBUG
+
+
 def test_run_forever_uses_configured_cadence_after_first_midnight(monkeypatch, tmp_path: Path) -> None:
     cfg = make_config(tmp_path)
     cfg.schedule_seconds = 900
@@ -200,4 +213,26 @@ def test_run_forever_uses_configured_cadence_after_first_midnight(monkeypatch, t
         assert str(error) == "stop test scheduler"
 
     assert sleeps == [1800, 900]
+    assert len(calls) == 2
+
+
+def test_run_forever_runs_immediately_on_startup_before_first_sleep(monkeypatch, tmp_path: Path) -> None:
+    cfg = make_config(tmp_path)
+    calls = []
+
+    def stop_after_first_sleep(seconds):
+        raise RuntimeError("stop test scheduler")
+
+    monkeypatch.setattr(service, "seconds_until_midnight", lambda now, timezone: 1800)
+
+    try:
+        service.run_forever(
+            cfg,
+            job=lambda config, now=None: calls.append(now),
+            now_fn=lambda: datetime.fromisoformat("2026-09-10T23:30:00+00:00"),
+            sleep_fn=stop_after_first_sleep,
+        )
+    except RuntimeError as error:
+        assert str(error) == "stop test scheduler"
+
     assert len(calls) == 1

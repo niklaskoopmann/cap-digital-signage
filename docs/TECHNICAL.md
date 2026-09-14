@@ -218,8 +218,13 @@ errors identify this setup command.
 `scripts/calendar_render_service/` is a separate consumer of the calendar DataSet. It uses a
 dedicated OAuth client, reads `/dataset/data/{dataSetId}`, applies the same retention cutoff
 independently, renders the configured views, and reuses `_upload_media_with_optional_layout` for
-the existing verified media and layout lifecycle. The service waits for local midnight and runs
-once per day using the configured IANA timezone.
+the existing verified media and layout lifecycle. On startup (including container restarts) the
+service runs one cycle immediately, then waits for local midnight and runs once per day using the
+configured IANA timezone.
+
+Console logging is configured via `setup_logging()` at startup, controlled by `LOG_LEVEL` (default
+`INFO`); cycle progress, skipped/empty-dataset warnings, and cleanup/cycle failures are logged to
+stdout so they are visible in `docker logs`.
 
 The Docker image copies `xibo_sync`, the service package, and `templates/calendar` under `/app`.
 Its Playwright Python package and browser image are pinned to the same version so the renderer
