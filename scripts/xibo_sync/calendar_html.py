@@ -165,6 +165,8 @@ def _format_event_time(event: CalendarEvent, reference_timezone: tzinfo) -> str:
 def _format_range(window_start: datetime, window_end: datetime) -> str:
     start_date = window_start.date()
     end_date = (window_end - timedelta(days=1)).date()
+    if start_date == end_date:
+        return _format_date(start_date)
     return f"{_format_date(start_date)} - {_format_date(end_date)}"
 
 
@@ -270,9 +272,11 @@ def build_calendar_template_context(
     event_view_models: list[dict[str, str]] = []
     for event in events:
         start_label = _format_event_time(event, reference_timezone)
+        event_date = _format_date(event.start.astimezone(reference_timezone).date()) if window_days > 1 else ""
         event_view_models.append(
             {
                 "subject": event.subject,
+                "date": event_date,
                 "time": start_label,
                 "location": event.location,
                 "organizer": event.organizer,

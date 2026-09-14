@@ -1,22 +1,25 @@
 {
   "title": "Today",
-  "date_range": "Aug 24, 2026 - Aug 24, 2026",
+  "date_range": "Aug 24, 2026",
   "event_count": 3,
   "events": [
     {
       "subject": "Team Standup",
+      "date": "",
       "time": "10:00 (30m)",
       "location": "Conference Room A",
       "organizer": "Alice Johnson"
     },
     {
       "subject": "Project Review & Planning",
+      "date": "",
       "time": "14:30 (1h)",
       "location": "Building 2, Floor 3",
       "organizer": "Bob Smith"
     },
     {
       "subject": "All hands meeting",
+      "date": "",
       "time": "All day",
       "location": "",
       "organizer": "Management"

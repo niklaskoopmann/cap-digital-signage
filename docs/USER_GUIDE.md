@@ -239,6 +239,9 @@ CALENDAR_PACKAGE_RETENTION_DAYS=1
 The bundled templates come with three views: `today`, `this_week`, and `next_2_weeks`. Their
 layout names are `Calendar Today`, `Calendar This Week`, and `Calendar Next 2 Weeks`.
 
+A view with `window_days` set to `1` shows only that day's date in the header. Views covering more
+than one day show the date range in the header and each event's date beside its time.
+
 ### Host-local daily refresh
 
 The Xibo Docker stack includes an optional `calendar-render-service` container. It reads the

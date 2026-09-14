@@ -200,7 +200,9 @@ Three views ship by default with the configs shown below. Their legacy layout na
 2. For each view name in `CALENDAR_HTML_VIEWS`:
    - Load the view's JSON config from `scripts/templates/calendar/views/<view>.json`.
    - Filter calendar events by the view's `window_days`.
-   - Build a template context dict with title, date range, event count, event list, and timestamp.
+   - Build a template context dict with title, date display, event count, event list, and timestamp.
+     One-day views show one date in the header and omit dates from event rows. Multi-day views show
+     the full date range in the header and include each event's local date beside its time.
    - Render the template (`template.html` or a custom template_file) with that context using Jinja2.
    - Capture the rendered HTML with Playwright Chromium at a fixed 1920x1080 viewport.
    - Write `calendar_<view>_<YYYY-MM-DD>.png` into the resolved `LOCAL_MEDIA_DIR`, using the

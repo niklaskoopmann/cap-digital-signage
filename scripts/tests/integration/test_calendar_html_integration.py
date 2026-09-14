@@ -6,10 +6,16 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 
-from xibo_sync import app
+from xibo_sync import app, html_packaging
+from xibo_sync.calendar_html import (
+    CalendarEvent,
+    build_calendar_template_context,
+    generate_calendar_images,
+)
 from xibo_sync.config import load_config
 
 
@@ -71,6 +77,104 @@ def _make_event(subject: str, start_iso: str, end_iso: str) -> dict:
         "end": {"dateTime": end_iso, "timeZone": "UTC"},
         "isCancelled": False,
     }
+
+
+def _render_bundled_calendar(context: dict[str, Any]) -> str:
+    template_dir = Path(__file__).parent.parent.parent / "templates" / "calendar"
+    return html_packaging.render_template(template_dir, "template.html", context)
+
+
+def _event_time_text(rendered_html: str) -> str:
+    return rendered_html.split('<div class="event-time">', 1)[1].split("</div>", 1)[0]
+
+
+def test_bundled_template_one_day_view_shows_only_header_date() -> None:
+    context = build_calendar_template_context(
+        [
+            CalendarEvent(
+                subject="Planning",
+                start=datetime(2026, 8, 20, 9, 0, tzinfo=timezone.utc),
+                end=datetime(2026, 8, 20, 10, 0, tzinfo=timezone.utc),
+            )
+        ],
+        title="Today",
+        window_days=1,
+        timezone=timezone.utc,
+        generated_at=datetime(2026, 8, 20, 8, 0, tzinfo=timezone.utc),
+    )
+
+    rendered_html = _render_bundled_calendar(context)
+
+    assert '<p class="subtitle">Aug 20, 2026</p>' in rendered_html
+    assert "Aug 20, 2026 -" not in rendered_html
+    assert "Aug 20, 2026" not in _event_time_text(rendered_html)
+    assert "09:00 (1h)" in _event_time_text(rendered_html)
+
+
+def test_bundled_template_multi_day_view_shows_range_and_local_event_date() -> None:
+    berlin = ZoneInfo("Europe/Berlin")
+    context = build_calendar_template_context(
+        [
+            CalendarEvent(
+                subject="Late planning",
+                start=datetime(2026, 8, 21, 22, 30, tzinfo=timezone.utc),
+                end=datetime(2026, 8, 21, 23, 30, tzinfo=timezone.utc),
+            )
+        ],
+        title="This Week",
+        window_days=7,
+        timezone=berlin,
+        generated_at=datetime(2026, 8, 20, 8, 0, tzinfo=berlin),
+    )
+
+    rendered_html = _render_bundled_calendar(context)
+    event_time_text = _event_time_text(rendered_html)
+
+    assert '<p class="subtitle">Aug 20, 2026 - Aug 26, 2026</p>' in rendered_html
+    assert "Aug 22, 2026 | 00:30 (1h)" in event_time_text
+
+
+def test_bundled_template_custom_view_uses_configured_three_day_window(tmp_path: Path) -> None:
+    bundled_template_dir = Path(__file__).parent.parent.parent / "templates" / "calendar"
+    template_dir = tmp_path / "calendar"
+    views_dir = template_dir / "views"
+    views_dir.mkdir(parents=True)
+    (template_dir / "template.html").write_text(
+        (bundled_template_dir / "template.html").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (views_dir / "rolling_brief.json").write_text(
+        json.dumps({"title": "Operations Outlook", "window_days": 3}),
+        encoding="utf-8",
+    )
+    rendered_html: list[str] = []
+
+    generate_calendar_images(
+        [
+            _make_event("Opening review", "2026-08-20T09:00:00", "2026-08-20T10:00:00"),
+            _make_event("Closing review", "2026-08-22T15:30:00", "2026-08-22T16:00:00"),
+            _make_event("Outside window", "2026-08-23T09:00:00", "2026-08-23T10:00:00"),
+        ],
+        ("rolling_brief",),
+        template_dir,
+        tmp_path / "output",
+        timezone.utc,
+        now=datetime(2026, 8, 20, 8, 0, tzinfo=timezone.utc),
+        renderer=lambda html, _path, _width, _height: rendered_html.append(html),
+    )
+
+    assert len(rendered_html) == 1
+    html = rendered_html[0]
+    event_time_texts = [
+        fragment.split("</div>", 1)[0]
+        for fragment in html.split('<div class="event-time">')[1:]
+    ]
+    assert "Office Calendar Hamburg - Operations Outlook" in html
+    assert '<p class="subtitle">Aug 20, 2026 - Aug 22, 2026</p>' in html
+    assert len(event_time_texts) == 2
+    assert "Aug 20, 2026 | 09:00 (1h)" in event_time_texts[0]
+    assert "Aug 22, 2026 | 15:30 (30m)" in event_time_texts[1]
+    assert "Outside window" not in html
 
 
 @pytest.fixture()

@@ -49,7 +49,7 @@
       background: rgba(18, 26, 56, 0.58);
       backdrop-filter: blur(6px);
       border: 1px solid var(--glass-border);
-      border-radius: 24px;
+      border-radius: 10px;
       box-shadow: var(--shadow);
       padding: 22px 28px;
     }
@@ -105,7 +105,7 @@
       backdrop-filter: blur(8px);
       border: 1px solid var(--glass-border);
       border-left: 8px solid var(--light-blue);
-      border-radius: 22px;
+      border-radius: 10px;
       padding: 22px 24px 20px 24px;
       box-shadow: var(--shadow);
       display: grid;
@@ -150,7 +150,7 @@
     .empty-state {
       border: 1px dashed rgba(255, 255, 255, 0.32);
       background: rgba(18, 26, 56, 0.56);
-      border-radius: 22px;
+      border-radius: 10px;
       padding: 42px 24px;
       text-align: center;
       color: var(--muted);
@@ -170,8 +170,8 @@
 
     @media (max-width: 900px) {
       .page { padding: 20px 18px; }
-      .header, .footer { padding: 20px 20px; border-radius: 18px; }
-      .event-card { padding: 18px 18px 16px; border-radius: 18px; }
+      .header, .footer { padding: 20px 20px; border-radius: 10px; }
+      .event-card { padding: 18px 18px 16px; border-radius: 10px; }
       .meta-item { font-size: 0.82rem; }
     }
   </style>
@@ -194,7 +194,7 @@
       {% if events %}
         {% for event in events %}
         <article class="event-card">
-          <div class="event-time">📅 {{ event.time }}</div>
+          <div class="event-time">📅 {% if event.date %}{{ event.date }} | {% endif %}{{ event.time }}</div>
           <div class="event-subject">{{ event.subject }}</div>
           <div class="event-meta">
             {% if event.location %}<span class="meta-item">📍 {{ event.location }}</span>{% endif %}

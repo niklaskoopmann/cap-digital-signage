@@ -195,13 +195,36 @@ def test_build_calendar_template_context_includes_event_details() -> None:
 
     assert context["title"] == "Today"
     assert context["event_count"] == 1
-    assert "Aug 20, 2026" in context["date_range"]
+    assert context["date_range"] == "Aug 20, 2026"
     assert len(context["events"]) == 1
     assert context["events"][0]["subject"] == "Planning"
+    assert context["events"][0]["date"] == ""
     assert "09:00" in context["events"][0]["time"]
     assert context["events"][0]["location"] == "Room A"
     assert context["events"][0]["organizer"] == "Alex"
     assert "Last updated" in context["generated_at_label"]
+
+
+def test_build_calendar_template_context_includes_event_dates_for_multi_day_view() -> None:
+    events = [
+        CalendarEvent(
+            subject="Planning",
+            start=datetime(2026, 8, 22, 9, 0, tzinfo=timezone.utc),
+            end=datetime(2026, 8, 22, 10, 0, tzinfo=timezone.utc),
+            timezone_name="UTC",
+        ),
+    ]
+
+    context = build_calendar_template_context(
+        events,
+        title="This Week",
+        window_days=7,
+        timezone=timezone.utc,
+        generated_at=datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc),
+    )
+
+    assert context["date_range"] == "Aug 20, 2026 - Aug 26, 2026"
+    assert context["events"][0]["date"] == "Aug 22, 2026"
 
 
 def test_build_calendar_template_context_empty_events() -> None:
