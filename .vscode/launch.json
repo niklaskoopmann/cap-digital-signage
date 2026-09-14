@@ -5,6 +5,13 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Generate Calendar Preview",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/render_template_preview.py",
+            "console": "integratedTerminal"
+        },
+        {
             "name": "sync_xibo.py with Arguments",
             "type": "debugpy",
             "request": "launch",
@@ -20,7 +27,7 @@
             "console": "integratedTerminal",
             "args": "--delete -y"
         },
-                {
+        {
             "name": "Sync, with Calendar, no delete: sync_xibo.py --upload-calendar-html -y",
             "type": "debugpy",
             "request": "launch",

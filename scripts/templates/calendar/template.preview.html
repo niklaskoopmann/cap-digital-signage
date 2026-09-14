@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Office Calendar - {{ title }}</title>
+  <title>Office Calendar - Today</title>
   <style>
     :root {
       --blue: #0058AB;
@@ -179,35 +179,49 @@
 <body>
   <main class="page">
     <section class="header">
-      <h1>Office Calendar Hamburg - {{ title }}</h1>
-      <p class="subtitle">{{ date_range }}</p>
+      <h1>Office Calendar Hamburg - Today</h1>
+      <p class="subtitle">Aug 24, 2026 - Aug 24, 2026</p>
       <div class="stats">
-        {% if event_count > 1 or event_count == 0 %}
-          <span class="pill">{{ event_count }} events</span>
-        {% endif %}
-        {% if event_count == 1 %}
-          <span class="pill">{{ event_count }} event</span>
-        {% endif %}
+        
+          <span class="pill">3 events</span>
+        
+        
       </div>
     </section>
     <section class="list">
-      {% if events %}
-        {% for event in events %}
+      
+        
         <article class="event-card">
-          <div class="event-time">📅 {{ event.time }}</div>
-          <div class="event-subject">{{ event.subject }}</div>
+          <div class="event-time">📅 10:00 (30m)</div>
+          <div class="event-subject">Team Standup</div>
           <div class="event-meta">
-            {% if event.location %}<span class="meta-item">📍 {{ event.location }}</span>{% endif %}
-            {% if event.organizer %}<span class="meta-item">⭐ {{ event.organizer }}</span>{% endif %}
+            <span class="meta-item">📍 Conference Room A</span>
+            <span class="meta-item">⭐ Alice Johnson</span>
           </div>
         </article>
-        {% endfor %}
-      {% else %}
-      <div class="empty-state">No events scheduled</div>
-      {% endif %}
+        
+        <article class="event-card">
+          <div class="event-time">📅 14:30 (1h)</div>
+          <div class="event-subject">Project Review &amp; Planning</div>
+          <div class="event-meta">
+            <span class="meta-item">📍 Building 2, Floor 3</span>
+            <span class="meta-item">⭐ Bob Smith</span>
+          </div>
+        </article>
+        
+        <article class="event-card">
+          <div class="event-time">📅 All day</div>
+          <div class="event-subject">All hands meeting</div>
+          <div class="event-meta">
+            
+            <span class="meta-item">⭐ Management</span>
+          </div>
+        </article>
+        
+      
     </section>
     <section class="footer">
-      {{ generated_at_label }}
+      Last updated: 2026-08-24 16:45 UTC
     </section>
   </main>
 </body>
