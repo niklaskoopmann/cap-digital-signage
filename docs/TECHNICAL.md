@@ -1,26 +1,115 @@
 # Technical Documentation
 
-This document is for maintainers and future adapters of the Xibo media sync scripts.
+> This document is for maintainers and future adapters of the Xibo media sync scripts.
+
+- [Technical Documentation](#technical-documentation)
+  - [Overview](#overview)
+  - [Installation](#installation)
+  - [Repository Layout](#repository-layout)
+  - [Runtime Configuration](#runtime-configuration)
+    - [Common keys](#common-keys)
+    - [Layout / Display workflow (optional)](#layout--display-workflow-optional)
+    - [Calendar upload](#calendar-upload)
+    - [Calendar HTML images](#calendar-html-images)
+      - [Template System](#template-system)
+      - [Template Directory Layout](#template-directory-layout)
+      - [Per-View Configuration Schema](#per-view-configuration-schema)
+      - [Bounded calendar layout](#bounded-calendar-layout)
+      - [Bundled Views](#bundled-views)
+      - [Generation pipeline](#generation-pipeline)
+    - [Host-local calendar render service](#host-local-calendar-render-service)
+      - [Legacy HTZ API helpers](#legacy-htz-api-helpers)
+    - [Managed layout cleanup](#managed-layout-cleanup)
+      - [Configuration keys](#configuration-keys)
+      - [Local cleanup](#local-cleanup)
+  - [Sync Flow](#sync-flow)
+    - [`sync_xibo.py`](#sync_xibopy)
+  - [Testing](#testing)
+  - [Comparison Modes](#comparison-modes)
+    - [`filename`](#filename)
+    - [`hash`](#hash)
+  - [Upload Behavior](#upload-behavior)
+  - [Deletion Safety](#deletion-safety)
+  - [OAuth Notes](#oauth-notes)
+  - [How to extend](#how-to-extend)
+  - [Recommended Maintenance Practice](#recommended-maintenance-practice)
+  - [Docker / Xibo CMS Reference](#docker--xibo-cms-reference)
+    - [Docker Admin Services](#docker-admin-services)
+      - [Portainer](#portainer)
+
 
 ## Overview
 
-The repository contains one sync entry point:
+This repository contains the local tooling and deployment assets used to keep a Xibo CMS instance fed with media and calendar content for digital signage players.
 
-- `scripts/sync_xibo.py`: thin launcher for the modular sync package.
+The active runtime pieces are:
 
-The implementation now lives under `scripts/xibo_sync/` so the configuration, UI, API client, media indexing, and config wizard can evolve independently.
+- `scripts/sync_xibo.py`: operator-run launcher for the modular `xibo_sync` package. It uploads
+  local media, can replace the Xibo calendar DataSet from a Microsoft Graph-style snapshot, and can
+  render/upload calendar PNGs on demand.
+- `scripts/xibo_sync/`: shared implementation for configuration, terminal UI, Xibo API calls, media
+  comparison, calendar data conversion, PNG generation, layout lifecycle, and cleanup safety.
+- `services/calendar_render_service/`: host-local Docker service that reads the Xibo calendar
+  DataSet, renders the configured calendar views as PNG images, uploads them through the shared
+  media/layout workflow, and repeats daily.
+- `xibo/xibo-docker-4.4.2/`: bundled Xibo CMS Docker stack, extended with the calendar render
+  service and Portainer for local container administration.
+
+The manual sync script and the render service intentionally share the same upload/layout code path.
+This keeps calendar images, ordinary uploaded media, layout publication, display-group assignment,
+and cleanup behavior consistent whether an operator runs the script or the service performs the
+daily calendar refresh.
+
+## Installation
+
+Detailed Debian/Linux installation steps live in [INSTALLATION.md](INSTALLATION.md). Use that guide
+for a new machine setup, including Docker installation, Xibo startup, Xibo OAuth application setup
+for both `xibo-sync` and the calendar render service, Electron player registration, player
+authorization, and first Portainer launch.
 
 ## Repository Layout
 
-- `media/`: local media source directory used by the sync scripts.
+- `media/`: local media source directory used by the sync script. Generated calendar PNGs are also
+  written here when `--upload-calendar-html` is run manually and `LOCAL_MEDIA_DIR` points here.
+- `docs/`: maintainer and operator documentation.
+  - `TECHNICAL.md`: implementation and maintenance reference.
+  - `USER_GUIDE.md`: operator-focused usage guide.
+  - `INSTALLATION.md`: Debian/Linux installation runbook.
+  - `PLAN.md`: current implementation plan or handoff context.
+  - `CHANGELOG.md`, `CHANGES.md`, `SYSTEM_TEST_RESULTS.md`: change and validation records.
 - `scripts/`: Python code and runtime configuration.
   - `sync_xibo.py`: launcher script.
   - `xibo_sync/`: modular sync implementation.
+    - `app.py`: command-line orchestration and shared upload/layout lifecycle.
+    - `client.py`: Xibo API client and CMS-specific layout/media helpers.
+    - `calendar_data.py`: calendar JSON/DataSet conversion and retention filtering.
+    - `calendar_html.py`: calendar event filtering and PNG view generation.
+    - `html_packaging.py`: generic Jinja rendering and Playwright screenshot capture helpers.
+    - `config.py`, `env_io.py`, `ui.py`, `wizard.py`, `media.py`: configuration, terminal UI,
+      environment persistence, media indexing, and setup wizard support.
+  - `render_template_preview.py`: renders the bundled calendar template locally for preview.
+  - `api_tests.py`: manual/ad-hoc API experiment script; not part of the automated test suite.
+  - `tests/`: offline pytest suite.
+    - `unit/`: isolated logic tests.
+    - `integration/`: multi-module tests with mocked/fake CMS boundaries.
+    - `system/`: explicit local or live-CMS harnesses that are not default pytest targets.
+    - `fixtures/`: sample calendar and test data.
+  - `templates/calendar/`: editable calendar Jinja template, preview data, assets, and view configs.
   - `.venv/`: local Python virtual environment; activate before any Python or pip command.
   - `.env`: local configuration and credentials.
   - `requirements.txt`: Python dependencies.
+  - `requirements-dev.txt`: pytest and development dependencies.
   - `logs/`: optional log output target.
+- `services/calendar_render_service/`: Dockerized daily calendar PNG generation service.
+  - `service.py`: fetch-render-upload loop and old-calendar cleanup orchestration.
+  - `config.py`: service-only environment loader.
+  - `Dockerfile`: Playwright-enabled image build.
+  - `.env.example`: template for the service's runtime environment file.
 - `xibo/`: Xibo CMS Docker assets, templates, and documentation.
+  - `xibo-docker-4.4.2/`: Docker Compose stack for CMS, database, XMR, memcached, quickchart,
+    calendar render service, and Portainer.
+  - `docs/swagger.json`: bundled Xibo API specification reference.
+  - `xibo-player/`: local notes and config for the Electron player path.
 
 `tzdata` is included in the runtime requirements because Windows Python installations do not
 always provide the IANA timezone database used by `zoneinfo`. Calendar timezone names such as
@@ -234,12 +323,20 @@ errors identify this setup command.
 
 ### Host-local calendar render service
 
-`services/calendar_render_service/` is a separate consumer of the calendar DataSet. It uses a
-dedicated OAuth client, reads `/dataset/data/{dataSetId}`, applies the same retention cutoff
-independently, renders the configured views, and reuses `_upload_media_with_optional_layout` for
-the existing verified media and layout lifecycle. On startup (including container restarts) the
-service runs one cycle immediately, then waits for local midnight and runs once per day using the
-configured IANA timezone.
+`services/calendar_render_service/` is the unattended calendar generation path for a Xibo host. It
+runs inside the bundled Docker Compose stack and uses its own OAuth client credentials, separate
+from the interactive `xibo-sync` application credentials. The service reads the configured Xibo
+DataSet via `/dataset/data/{dataSetId}`, converts the rows into the same event shape used by manual
+calendar rendering, applies `CALENDAR_EVENT_RETENTION_DAYS`, renders each configured view to a PNG,
+and uploads those PNGs through `_upload_media_with_optional_layout` so verification, layout
+creation, publication, display-group assignment, and immediate-show behavior stay identical to the
+manual upload path.
+
+On startup, including container restarts, the service runs one render/upload cycle immediately.
+After that it waits until local midnight in `CALENDAR_TIMEZONE` and then repeats every
+`CALENDAR_RENDER_SCHEDULE_SECONDS` seconds, defaulting to once per day. This gives the player fresh
+calendar images without requiring an operator to run `sync_xibo.py --upload-calendar-html` on the
+host.
 
 Console logging is configured via `setup_logging()` at startup, controlled by `LOG_LEVEL` (default
 `INFO`); cycle progress, skipped/empty-dataset warnings, and cleanup/cycle failures are logged to
@@ -447,10 +544,46 @@ The AI-agent orientation file lives at `AI_AGENTS.md`.
 
 Typical setup flow:
 
-1. Start the stack with `docker compose up -d` in that directory.
-2. Open the CMS web UI.
-3. Complete the initial installer.
-4. Create an OAuth application in Administration → Applications.
-5. Copy the client credentials into `scripts/.env`.
+1. Follow [INSTALLATION.md](INSTALLATION.md) for the full Debian host setup.
+2. Start the stack with `docker compose up -d` in `xibo/xibo-docker-4.4.2/`.
+3. Open the CMS web UI and complete the initial installer.
+4. Create two OAuth applications in Administration > Applications: one for `xibo-sync` and one for
+  the calendar render service.
+5. Copy the `xibo-sync` client credentials into `scripts/.env`.
+6. Copy the calendar render service credentials into `services/calendar_render_service/.env`.
+7. Register and authorize the Electron player in the CMS.
+8. Complete the first Portainer launch at `http://<host>:9000` or `https://<host>:9443`.
 
-For user-facing run instructions, see [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
+Future setup work should add a boot-time hotspot launcher script for machines that need to create
+their own local wireless network after startup.
+
+For user-facing run instructions, see [USER_GUIDE.md](USER_GUIDE.md).
+
+### Docker Admin Services
+
+#### Portainer
+Portainer is included in `xibo/xibo-docker-4.4.2/docker-compose.yml` as
+`portainer/portainer-ce:lts`. The compose file publishes both HTTP and HTTPS admin ports:
+
+- `http://localhost:9000`
+- `https://localhost:9443`
+
+For a remote Debian host, replace `localhost` with the host name or IP address. The Portainer data
+volume is named `xibo-docker-442_portainer_data`, and the service mounts `/var/run/docker.sock` so
+it can inspect and manage the local Docker engine.
+
+First launch checklist:
+
+1. Open Portainer in a browser before the initial setup session expires.
+2. Create the initial admin user when prompted.
+3. Enter the activation token if this deployment prompts for one.
+4. Select the local Docker environment.
+5. Use the `xibo-docker-4.4.2` stack view to inspect CMS, database, XMR, calendar render service,
+   and player-supporting container logs.
+
+Use Portainer for container inspection and restarts; keep Xibo application settings and player
+authorization inside the Xibo CMS UI.
+
+
+
+

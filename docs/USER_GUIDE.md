@@ -1,6 +1,36 @@
 # User Guide
 
-This guide explains how to run the sync tool, how it behaves, and how to start Xibo with Docker.
+> This guide explains how to run the sync tool, how it behaves, and how to start Xibo with Docker.
+
+- [User Guide](#user-guide)
+	- [What this tool does](#what-this-tool-does)
+	- [Before you start](#before-you-start)
+	- [How to run the sync](#how-to-run-the-sync)
+		- [Safe preview first](#safe-preview-first)
+		- [Calendar preview](#calendar-preview)
+		- [Real sync](#real-sync)
+	- [Command-line options](#command-line-options)
+	- [What the settings mean](#what-the-settings-mean)
+	- [Calendar HTML Images](#calendar-html-images)
+		- [Prerequisites](#prerequisites)
+		- [Running](#running)
+		- [Configuration](#configuration)
+		- [Host-local daily refresh](#host-local-daily-refresh)
+		- [Customizing Views](#customizing-views)
+			- [Edit an existing view's title or window](#edit-an-existing-views-title-or-window)
+			- [Add a custom view](#add-a-custom-view)
+		- [Preview Templates](#preview-templates)
+		- [Troubleshooting](#troubleshooting)
+	- [The first run](#the-first-run)
+	- [Running Xibo in Docker](#running-xibo-in-docker)
+		- [Windows](#windows)
+		- [Linux](#linux)
+	- [Xibo Player on Linux Ubuntu](#xibo-player-on-linux-ubuntu)
+		- [Electron player](#electron-player)
+		- [Arexibo](#arexibo)
+	- [First steps in Xibo](#first-steps-in-xibo)
+	- [Troubleshooting](#troubleshooting-1)
+
 
 ## What this tool does
 
