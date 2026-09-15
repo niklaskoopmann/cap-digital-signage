@@ -6,6 +6,7 @@ This repository centers on the Xibo media sync workflow.
 
 - `scripts/sync_xibo.py` is the main script to run.
 - The sync logic now lives in `scripts/xibo_sync/`, but this script remains the entry point.
+- The host-local calendar render service lives in `services/calendar_render_service/`.
 - For any Python or pip command, run from `scripts/` and activate `scripts/.venv` first:
   `.\.venv\Scripts\Activate.ps1`.
 

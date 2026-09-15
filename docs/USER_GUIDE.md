@@ -197,6 +197,27 @@ Deploy all configured views:
 python sync_xibo.py --upload-calendar-html --yes
 ```
 
+Calendar images show all matching events in one column through four events. At five through eight
+events the image switches to two columns, flowing chronologically across each row. When more than
+eight events match a view, only the first eight are shown and the badge reports `8 of N events`.
+This is intentional for the fixed 1920x1080 image; the omitted events are not paginated or scrolled.
+
+To inspect the bundled maximum-density template without contacting Xibo:
+
+```powershell
+cd scripts
+\.venv\Scripts\Activate.ps1
+python render_template_preview.py
+```
+
+The local layout harness exercises the fixed viewport and background rendering directly:
+
+```powershell
+cd scripts
+\.venv\Scripts\Activate.ps1
+python -m pytest tests/system/calendar_template_render_system.py -q
+```
+
 ### Configuration
 
 The calendar HTML generation is configured by environment variables in `scripts/.env`:
@@ -251,11 +272,11 @@ to run each day. It also runs one render/upload cycle immediately when the conta
 restarts, so a restart does not have to wait until the next midnight to refresh stale calendars.
 The existing `--upload-calendar-html` command remains available as a manual or fallback path.
 
-Create its environment file from `scripts/calendar_render_service/.env.example`, then start the
+Create its environment file from `services/calendar_render_service/.env.example`, then start the
 stack from `xibo/xibo-docker-4.4.2`:
 
 ```powershell
-Copy-Item ..\..\scripts\calendar_render_service\.env.example ..\..\scripts\calendar_render_service\.env
+Copy-Item ..\..\services\calendar_render_service\.env.example ..\..\services\calendar_render_service\.env
 docker compose up -d --build
 docker compose logs -f calendar-render-service
 ```

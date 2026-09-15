@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import base64
 import sys
 import types
 import zipfile
@@ -116,6 +117,31 @@ def test_render_template_html_escapes_untrusted_values() -> None:
         assert "&lt;script&gt;" in result
         assert "&lt;/script&gt;" in result
         assert "<script>" not in result
+
+
+def test_render_template_embeds_template_local_asset_as_data_uri(tmp_path: Path) -> None:
+    asset = b"jpeg-bytes"
+    (tmp_path / "template_resources").mkdir()
+    (tmp_path / "template_resources" / "background.jpeg").write_bytes(asset)
+    (tmp_path / "test.html").write_text(
+        '{{ "template_resources/background.jpeg" | asset_data_uri }}'
+    )
+
+    result = html_packaging.render_template(tmp_path, "test.html", {})
+
+    expected = base64.b64encode(asset).decode("ascii")
+    assert f"data:image/jpeg;base64,{expected}" in result
+
+
+@pytest.mark.parametrize("asset_path", ["missing.jpeg", "../outside.jpeg"])
+def test_render_template_rejects_invalid_template_asset_paths(tmp_path: Path, asset_path: str) -> None:
+    (tmp_path / "test.html").write_text(
+        f'{{{{ "{asset_path}" | asset_data_uri }}}}'
+    )
+
+    expected_exception = ValueError if asset_path.startswith("..") else FileNotFoundError
+    with pytest.raises(expected_exception, match="Template asset"):
+        html_packaging.render_template(tmp_path, "test.html", {})
 
 
 def test_render_template_raises_for_missing_template() -> None:

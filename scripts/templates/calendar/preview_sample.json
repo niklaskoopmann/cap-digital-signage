@@ -1,7 +1,9 @@
 {
   "title": "Today",
   "date_range": "Aug 24, 2026",
-  "event_count": 3,
+  "event_count": 8,
+  "displayed_event_count": 8,
+  "events_truncated": false,
   "events": [
     {
       "subject": "Team Standup",
@@ -23,6 +25,41 @@
       "time": "All day",
       "location": "",
       "organizer": "Management"
+    },
+    {
+      "subject": "Design critique",
+      "date": "",
+      "time": "11:00 (45m)",
+      "location": "Studio 2",
+      "organizer": "Carol Lee"
+    },
+    {
+      "subject": "Customer workshop",
+      "date": "",
+      "time": "13:00 (2h)",
+      "location": "Training room",
+      "organizer": "David Brown"
+    },
+    {
+      "subject": "Operations sync",
+      "date": "",
+      "time": "15:30 (30m)",
+      "location": "Conference Room B",
+      "organizer": "Eve Martin"
+    },
+    {
+      "subject": "Release readiness",
+      "date": "",
+      "time": "16:15 (45m)",
+      "location": "Online",
+      "organizer": "Frank Wilson"
+    },
+    {
+      "subject": "Team retro",
+      "date": "",
+      "time": "17:15 (45m)",
+      "location": "Conference Room A",
+      "organizer": "Grace Kim"
     }
   ],
   "generated_at_label": "Last updated: 2026-08-24 16:45 UTC"

@@ -12,6 +12,12 @@ work that has already been completed.
 
 ## Changes
 
+### 2026-09-14 - Bounded multi-event calendar layout and embedded background
+- Status: `Implemented`
+- Summary: Render calendar images with one column through four events, two across-row columns through eight events, an explicit `8 of N events` cap beyond eight, and a self-contained background image that resolves in Playwright-generated Xibo uploads without viewport scrolling. Added asset-path validation, boundary tests, and a local Playwright layout harness.
+- Validation: Bundled preview rendered successfully; local Playwright harness passed 6 cases; full offline pytest passed 170 tests.
+- Plan: `docs/PLAN.md`
+
 ### 2026-09-14 - Use speaking names for calendar DataSet columns
 - Status: `Implemented`
 - Summary: The main calendar uploader now migrates legacy positional `c11`-`c18` DataSet headings to speaking names in place, uses safe names `availability` and `eventType` instead of reserved `showAs` and `type`, and removes obsolete aliases after import while preserving canonical column IDs and data.

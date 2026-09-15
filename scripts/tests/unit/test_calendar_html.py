@@ -242,6 +242,30 @@ def test_build_calendar_template_context_empty_events() -> None:
     assert context["title"] == "Today"
 
 
+def test_build_calendar_template_context_caps_displayed_events_and_retains_total() -> None:
+    events = [
+        CalendarEvent(
+            subject=f"Event {index}",
+            start=datetime(2026, 8, 20, 9 + index, 0, tzinfo=timezone.utc),
+            end=datetime(2026, 8, 20, 9 + index, 30, tzinfo=timezone.utc),
+        )
+        for index in range(9)
+    ]
+
+    context = build_calendar_template_context(
+        events,
+        title="Today",
+        window_days=1,
+        timezone=timezone.utc,
+        generated_at=datetime(2026, 8, 20, 8, 0, tzinfo=timezone.utc),
+    )
+
+    assert context["event_count"] == 9
+    assert context["displayed_event_count"] == 8
+    assert context["events_truncated"] is True
+    assert [event["subject"] for event in context["events"]] == [f"Event {index}" for index in range(8)]
+
+
 def test_build_calendar_template_context_formats_all_day_events() -> None:
     """build_calendar_template_context should format all-day events correctly."""
     events = [

@@ -178,6 +178,20 @@ Each view is configured by a JSON file in `views/` with the following schema:
 }
 ```
 
+#### Bounded calendar layout
+
+The template context retains `event_count` as the total number of filtered events, while
+`displayed_event_count` is capped at eight and `events_truncated` indicates that the cap was applied.
+The existing chronological sort is performed before context construction, so the first eight events
+remain the earliest events in start-time and subject order. The template uses one column for zero
+through four displayed events and two columns for five through eight, with normal grid placement
+flowing across rows. The page, event list, and cards hide overflow so the generated image remains a
+1920x1080 composition; long card values wrap inside their allocated bounds.
+
+Template-local assets referenced with the `asset_data_uri` Jinja filter are resolved beneath the
+selected template directory, MIME-detected, and embedded as base64 data URIs. Missing files and
+paths that escape the template root fail before rendering. This is required because Playwright uses
+`page.set_content()` without a template-directory document base URL.
 - `title` (required): Display title for the calendar view (e.g., "Today", "This Week").
 - `window_days` (required): Number of days to include in the time window for event filtering.
 - `layout_name` (optional): retained in existing view files for compatibility and ignored by PNG generation.
@@ -220,7 +234,7 @@ errors identify this setup command.
 
 ### Host-local calendar render service
 
-`scripts/calendar_render_service/` is a separate consumer of the calendar DataSet. It uses a
+`services/calendar_render_service/` is a separate consumer of the calendar DataSet. It uses a
 dedicated OAuth client, reads `/dataset/data/{dataSetId}`, applies the same retention cutoff
 independently, renders the configured views, and reuses `_upload_media_with_optional_layout` for
 the existing verified media and layout lifecycle. On startup (including container restarts) the
@@ -235,7 +249,7 @@ The Docker image copies `xibo_sync`, the service package, and `templates/calenda
 Its Playwright Python package and browser image are pinned to the same version so the renderer
 does not drift away from the bundled Chromium executable.
 Compose adds it to `xibo/xibo-docker-4.4.2/docker-compose.yml` with no published ports. Create
-`scripts/calendar_render_service/.env` from its `.env.example`; keep the credential file out of
+`services/calendar_render_service/.env` from its `.env.example`; keep the credential file out of
 version control.
 
 Each daily cycle fetches the configured calendar DataSet, filters it by the retention window, renders

@@ -4,7 +4,7 @@ WORKDIR /app
 ENV PYTHONPATH=/app
 
 COPY scripts/xibo_sync /app/xibo_sync
-COPY scripts/calendar_render_service /app/calendar_render_service
+COPY services/calendar_render_service /app/calendar_render_service
 COPY scripts/templates/calendar /app/templates/calendar
 COPY scripts/requirements.txt /app/requirements.txt
 

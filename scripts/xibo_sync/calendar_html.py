@@ -269,8 +269,10 @@ def build_calendar_template_context(
     window_end = window_start + timedelta(days=window_days)
     date_range = _format_range(window_start, window_end)
 
+    event_count = len(events)
+    displayed_events = events[:8]
     event_view_models: list[dict[str, str]] = []
-    for event in events:
+    for event in displayed_events:
         start_label = _format_event_time(event, reference_timezone)
         event_date = _format_date(event.start.astimezone(reference_timezone).date()) if window_days > 1 else ""
         event_view_models.append(
@@ -286,7 +288,9 @@ def build_calendar_template_context(
     return {
         "title": title,
         "date_range": date_range,
-        "event_count": len(events),
+        "event_count": event_count,
+        "displayed_event_count": len(event_view_models),
+        "events_truncated": event_count > len(event_view_models),
         "events": event_view_models,
         "generated_at_label": f"Last updated: {generated_at.strftime('%Y-%m-%d %H:%M %Z')}",
     }

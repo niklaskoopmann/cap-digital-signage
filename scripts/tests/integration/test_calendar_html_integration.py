@@ -88,6 +88,51 @@ def _event_time_text(rendered_html: str) -> str:
     return rendered_html.split('<div class="event-time">', 1)[1].split("</div>", 1)[0]
 
 
+@pytest.mark.parametrize(
+    ("event_count", "layout_class", "badge"),
+    [
+        (4, "events-4", "4 events"),
+        (5, "events-5", "5 events"),
+        (8, "events-8", "8 events"),
+        (9, "events-8", "8 of 9 events"),
+    ],
+)
+def test_bundled_template_uses_bounded_event_layout_and_embedded_background(
+    event_count: int,
+    layout_class: str,
+    badge: str,
+) -> None:
+    events = [
+        CalendarEvent(
+            subject=f"Event {index}",
+            start=datetime(2026, 8, 20, 9 + index, 0, tzinfo=timezone.utc),
+            end=datetime(2026, 8, 20, 9 + index, 30, tzinfo=timezone.utc),
+        )
+        for index in range(event_count)
+    ]
+
+    rendered_html = _render_bundled_calendar(
+        build_calendar_template_context(
+            events,
+            title="Today",
+            window_days=1,
+            timezone=timezone.utc,
+            generated_at=datetime(2026, 8, 20, 8, 0, tzinfo=timezone.utc),
+        )
+    )
+
+    assert f'class="list {layout_class}"' in rendered_html
+    assert rendered_html.count('class="event-card"') == min(event_count, 8)
+    assert badge in rendered_html
+    assert "template_resources/template_background.jpeg" not in rendered_html
+    assert "data:image/jpeg;base64," in rendered_html
+    subjects = [
+        fragment.split("</div>", 1)[0]
+        for fragment in rendered_html.split('<div class="event-subject">')[1:]
+    ]
+    assert subjects == [f"Event {index}" for index in range(min(event_count, 8))]
+
+
 def test_bundled_template_one_day_view_shows_only_header_date() -> None:
     context = build_calendar_template_context(
         [
@@ -142,6 +187,11 @@ def test_bundled_template_custom_view_uses_configured_three_day_window(tmp_path:
     (template_dir / "template.html").write_text(
         (bundled_template_dir / "template.html").read_text(encoding="utf-8"),
         encoding="utf-8",
+    )
+    resource_dir = template_dir / "template_resources"
+    resource_dir.mkdir()
+    (resource_dir / "template_background.jpeg").write_bytes(
+        (bundled_template_dir / "template_resources" / "template_background.jpeg").read_bytes()
     )
     (views_dir / "rolling_brief.json").write_text(
         json.dumps({"title": "Operations Outlook", "window_days": 3}),

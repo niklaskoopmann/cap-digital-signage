@@ -30,14 +30,19 @@
 
     body {
       margin: 0;
-      min-height: 100vh;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
       font-family: "Ubuntu", "Segoe UI", Arial, sans-serif;
-      background: url("template_resources/template_background.jpeg") center center / cover no-repeat;
+      background: url("{{ 'template_resources/template_background.jpeg' | asset_data_uri }}") center center / cover no-repeat;
       color: var(--text);
     }
 
     .page {
-      min-height: 100vh;
+      width: 100vw;
+      height: 100vh;
+      min-height: 0;
+      overflow: hidden;
       padding: 36px 32px 30px;
       display: flex;
       flex-direction: column;
@@ -95,8 +100,39 @@
     }
 
     .list {
+      min-height: 0;
+      flex: 1;
       display: grid;
       gap: 18px;
+      overflow: hidden;
+    }
+
+    .list.events-1,
+    .list.events-2,
+    .list.events-3,
+    .list.events-4 {
+      grid-template-columns: 1fr;
+      grid-template-rows: repeat(var(--event-count), minmax(0, 1fr));
+    }
+
+    .list.events-5,
+    .list.events-6,
+    .list.events-7,
+    .list.events-8 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-rows: repeat(4, minmax(0, 1fr));
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
     }
 
     .event-card {
@@ -110,6 +146,9 @@
       box-shadow: var(--shadow);
       display: grid;
       gap: 10px;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
     }
 
     .event-time {
@@ -124,6 +163,7 @@
       line-height: 1.18;
       font-weight: 700;
       color: var(--white);
+      overflow-wrap: anywhere;
     }
 
     .event-meta {
@@ -132,6 +172,8 @@
       align-items: center;
       gap: 10px;
       margin-top: 2px;
+      min-width: 0;
+      overflow: hidden;
     }
 
     .meta-item {
@@ -145,6 +187,8 @@
       color: var(--white);
       font-size: 0.92rem;
       font-weight: 500;
+      min-width: 0;
+      overflow-wrap: anywhere;
     }
 
     .empty-state {
@@ -182,15 +226,16 @@
       <h1>Office Calendar Hamburg - {{ title }}</h1>
       <p class="subtitle">{{ date_range }}</p>
       <div class="stats">
-        {% if event_count > 1 or event_count == 0 %}
+        {% if events_truncated %}
+          <span class="pill">{{ displayed_event_count }} of {{ event_count }} events</span>
+        {% elif event_count > 1 or event_count == 0 %}
           <span class="pill">{{ event_count }} events</span>
-        {% endif %}
-        {% if event_count == 1 %}
+        {% elif event_count == 1 %}
           <span class="pill">{{ event_count }} event</span>
         {% endif %}
       </div>
     </section>
-    <section class="list">
+    <section class="list events-{{ displayed_event_count }}" style="--event-count: {{ displayed_event_count }}">
       {% if events %}
         {% for event in events %}
         <article class="event-card">

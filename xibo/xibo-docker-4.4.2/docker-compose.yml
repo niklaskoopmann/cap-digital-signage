@@ -48,8 +48,8 @@ services:
     calendar-render-service:
         build:
             context: ../..
-            dockerfile: scripts/calendar_render_service/Dockerfile
-        env_file: ../../scripts/calendar_render_service/.env
+            dockerfile: services/calendar_render_service/Dockerfile
+        env_file: ../../services/calendar_render_service/.env
         depends_on:
             - cms-web
         restart: always

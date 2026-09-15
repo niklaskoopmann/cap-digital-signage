@@ -2,12 +2,32 @@
 
 from __future__ import annotations
 
+import base64
 import json
+import mimetypes
 import zipfile
 from pathlib import Path
 from typing import Any, Protocol
 
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
+
+
+def _asset_data_uri(template_dir: Path, relative_path: str) -> str:
+    """Return a data URI for a file beneath the template directory."""
+    root = template_dir.resolve()
+    asset_path = (root / relative_path).resolve()
+    try:
+        asset_path.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"Template asset path escapes template directory: {relative_path}") from exc
+    if not asset_path.is_file():
+        raise FileNotFoundError(f"Template asset not found: {relative_path}")
+
+    mime_type, _ = mimetypes.guess_type(asset_path.name)
+    if not mime_type:
+        mime_type = "application/octet-stream"
+    encoded = base64.b64encode(asset_path.read_bytes()).decode("ascii")
+    return f"data:{mime_type};base64,{encoded}"
 
 
 class HtmlImageRenderer(Protocol):
@@ -81,6 +101,9 @@ def render_template(
     env = Environment(
         loader=FileSystemLoader(template_dir),
         autoescape=True,  # HTML-escape untrusted values
+    )
+    env.filters["asset_data_uri"] = lambda relative_path: _asset_data_uri(
+        template_dir, relative_path
     )
     template = env.get_template(template_file)
     return template.render(context)
