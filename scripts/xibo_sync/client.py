@@ -1275,6 +1275,7 @@ class XiboClient:
             # attempt checkout here (rather than unconditionally, which can needlessly
             # collide with a layout that's already editable) since we now know it's
             # required.
+            background_set_after_existing_checkout = False
             checkout_r = self._request("PUT", self._api_url(f"/layout/checkout/{layout_id}"))
             if not checkout_r.ok:
                 already_checked_out = False
@@ -1290,23 +1291,32 @@ class XiboClient:
                 discard_r = self._request("PUT", self._api_url(f"/layout/discard/{layout_id}"))
                 if not discard_r.ok:
                     logging.warning(
-                        "Discard stale checkout failed (%s), retrying checkout anyway...",
+                        "Discard stale checkout failed (%s), trying the existing checkout...",
                         discard_r.status_code,
                     )
-                checkout_r = self._request("PUT", self._api_url(f"/layout/checkout/{layout_id}"))
-                if not checkout_r.ok:
-                    raise RuntimeError(f"Checkout fullscreen layout failed after discard ({checkout_r.status_code}): {checkout_r.text}")
+                    r = _set_background(layout_id)
+                    if not r.ok:
+                        raise RuntimeError(
+                            f"Set fullscreen layout background failed with existing checkout "
+                            f"({r.status_code}): {r.text}"
+                        )
+                    background_set_after_existing_checkout = True
+                if not background_set_after_existing_checkout:
+                    checkout_r = self._request("PUT", self._api_url(f"/layout/checkout/{layout_id}"))
+                    if not checkout_r.ok:
+                        raise RuntimeError(f"Checkout fullscreen layout failed after discard ({checkout_r.status_code}): {checkout_r.text}")
 
             # Checkout can create a new draft row with its own layoutId (the original
             # becomes the published parent) - use the checked-out id for the retry.
-            checkout_data = self._extract_data(checkout_r.json())
-            if isinstance(checkout_data, list):
-                checkout_data = checkout_data[0] if checkout_data else None
-            if isinstance(checkout_data, dict):
-                payload = checkout_data
-                layout_id = self._coerce_int(payload.get("layoutId") or payload.get("id")) or layout_id
+            if not background_set_after_existing_checkout:
+                checkout_data = self._extract_data(checkout_r.json())
+                if isinstance(checkout_data, list):
+                    checkout_data = checkout_data[0] if checkout_data else None
+                if isinstance(checkout_data, dict):
+                    payload = checkout_data
+                    layout_id = self._coerce_int(payload.get("layoutId") or payload.get("id")) or layout_id
 
-            r = _set_background(layout_id)
+                r = _set_background(layout_id)
 
         if not r.ok:
             raise RuntimeError(f"Set fullscreen layout background failed ({r.status_code}): {r.text}")

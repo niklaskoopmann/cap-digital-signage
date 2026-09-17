@@ -32,7 +32,8 @@ class Config:
     display_group_id: str | None
     trigger_collectnow_on_changes: bool
     xibo_upload_field: str
-    schedule_seconds: int
+    render_cron: str
+    run_on_start: bool
     log_level: str
     dry_run: bool = False
 
@@ -50,9 +51,10 @@ def load_config() -> Config:
     views = tuple(value.strip() for value in os.getenv(
         "CALENDAR_HTML_VIEWS", "today,this_week,next_2_weeks"
     ).split(",") if value.strip())
-    schedule_seconds = getenv_int("CALENDAR_RENDER_SCHEDULE_SECONDS", 86400)
-    if schedule_seconds <= 0:
-        raise ValueError("CALENDAR_RENDER_SCHEDULE_SECONDS must be greater than zero")
+    raw_render_cron = os.getenv("CALENDAR_RENDER_CRON", "0 0 * * *")
+    render_cron = raw_render_cron.strip()
+    if not render_cron or "\n" in raw_render_cron or "\r" in raw_render_cron or len(render_cron.split()) != 5:
+        raise ValueError("CALENDAR_RENDER_CRON must contain exactly five cron fields")
 
     return Config(
         cms_base_url=base_url,
@@ -76,6 +78,7 @@ def load_config() -> Config:
         display_group_id=os.getenv("DISPLAY_GROUP_ID", "").strip() or None,
         trigger_collectnow_on_changes=getenv_bool("TRIGGER_COLLECTNOW_ON_CHANGES", True),
         xibo_upload_field=os.getenv("XIBO_UPLOAD_FIELD", "files").strip(),
-        schedule_seconds=schedule_seconds,
+        render_cron=render_cron,
+        run_on_start=getenv_bool("CALENDAR_RENDER_RUN_ON_START", True),
         log_level=os.getenv("LOG_LEVEL", "INFO").strip().upper() or "INFO",
     )

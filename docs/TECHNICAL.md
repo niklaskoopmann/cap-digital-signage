@@ -332,11 +332,17 @@ and uploads those PNGs through `_upload_media_with_optional_layout` so verificat
 creation, publication, display-group assignment, and immediate-show behavior stay identical to the
 manual upload path.
 
-On startup, including container restarts, the service runs one render/upload cycle immediately.
-After that it waits until local midnight in `CALENDAR_TIMEZONE` and then repeats every
-`CALENDAR_RENDER_SCHEDULE_SECONDS` seconds, defaulting to once per day. This gives the player fresh
-calendar images without requiring an operator to run `sync_xibo.py --upload-calendar-html` on the
-host.
+The container runs `supercronic` as PID 1. It generates a crontab from `CALENDAR_RENDER_CRON`
+(default `0 0 * * *`) and starts a separate one-shot Python process for each tick. Set
+`CALENDAR_RENDER_RUN_ON_START=true` (the default) to run one isolated startup cycle as well.
+The scheduler uses `/usr/local/bin/supercronic` as both its executable and `argv[0]` because
+Supercronic v0.2.35 re-executes itself while initializing PID 1 without searching `PATH`.
+`TZ` controls the container's cron wall clock and should match the intended local timezone;
+`CALENDAR_TIMEZONE` remains the event filtering and display timezone. Each cron command uses
+`flock -n`, so a slow cycle causes an overlapping tick to be skipped rather than run concurrently.
+A failed or killed job exits without stopping `supercronic`, so the next scheduled tick remains
+available. This gives the player fresh calendar images without requiring an operator to run
+`sync_xibo.py --upload-calendar-html` on the host.
 
 Console logging is configured via `setup_logging()` at startup, controlled by `LOG_LEVEL` (default
 `INFO`); cycle progress, skipped/empty-dataset warnings, and cleanup/cycle failures are logged to

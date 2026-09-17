@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import logging
-import time
-from datetime import datetime, timedelta, tzinfo
+from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from xibo_sync.app import _upload_media_with_optional_layout
 from xibo_sync.calendar_data import dataset_rows_to_events, filter_events_by_retention
@@ -113,44 +111,17 @@ def run_once(cfg: Config, *, client: XiboClient | None = None, now: datetime | N
     return {"events": len(events), "images": len(images), "uploads": uploads}
 
 
-def seconds_until_midnight(now: datetime, timezone: str | tzinfo) -> float:
-    """Return seconds from ``now`` until the next local midnight."""
-    local_timezone = ZoneInfo(timezone) if isinstance(timezone, str) else timezone
-    local_now = now.astimezone(local_timezone) if now.tzinfo else now.replace(tzinfo=local_timezone)
-    tomorrow = (local_now + timedelta(days=1)).date()
-    next_midnight = datetime.combine(tomorrow, datetime.min.time(), tzinfo=local_timezone)
-    return max(0.0, (next_midnight - local_now).total_seconds())
-
-
-def run_forever(
-    cfg: Config,
-    *,
-    job=run_once,
-    now_fn=datetime.now,
-    sleep_fn=time.sleep,
-) -> None:
-    """Run the job immediately on startup/restart, then daily at local midnight, isolating failures to one cycle."""
-    logging.info("Calendar render service starting; running an initial cycle before the daily schedule")
-    try:
-        job(cfg, now=now_fn())
-    except Exception:
-        logging.exception("Initial calendar render cycle failed; continuing to the daily schedule")
-
-    delay = seconds_until_midnight(now_fn(), cfg.calendar_timezone)
-    while True:
-        sleep_fn(delay)
-        try:
-            job(cfg, now=now_fn())
-        except Exception:
-            logging.exception("Calendar render cycle failed; continuing")
-        delay = cfg.schedule_seconds
-
-
-def main() -> None:
+def main() -> int:
+    """Run exactly one render cycle and return a process status code."""
     cfg = load_config()
     setup_logging(cfg.log_level)
-    run_forever(cfg)
+    try:
+        run_once(cfg)
+    except Exception:
+        logging.exception("Calendar render cycle failed")
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -14,6 +14,9 @@ class FakeXiboClient:
         self.layout_state = {"existing-layout": {"tags": ["keep-me"]}}
         self._next_media_id = 1
 
+    def authenticate_oauth(self, client_id: str, client_secret: str) -> None:
+        self.calls.append(("authenticate_oauth", (client_id, client_secret)))
+
     def get_dataset(self, name: str, code: str | None = None) -> dict[str, str]:
         self.calls.append(("get_dataset", (name, code)))
         return {"dataSetId": "calendar-1"}
@@ -96,6 +99,7 @@ def make_config(tmp_path: Path, create_layout_per_upload: bool = False) -> Simpl
         trigger_collectnow_on_changes=False,
         xibo_upload_field="files",
         cleanup_old_view_uploads=True,
+        log_level="INFO",
         dry_run=False,
     )
 
@@ -194,3 +198,26 @@ def test_render_service_skips_empty_dataset_without_render_or_upload(
     assert result == {"events": 0, "images": 0, "uploads": 0}
     assert rendered == []
     assert uploaded == []
+
+
+def test_service_main_runs_one_complete_cycle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    client = FakeXiboClient([
+        {
+            "eventIdentifier": "one-event",
+            "subject": "One event",
+            "endDateTime": "2026-09-09T12:00:00",
+            "endTimeZone": "UTC",
+        }
+    ])
+    cfg = make_config(tmp_path)
+    image = SimpleNamespace(view_type="today", image_path=tmp_path / "today.png")
+    uploads = []
+    monkeypatch.setattr(service, "load_config", lambda: cfg)
+    monkeypatch.setattr(service, "setup_logging", lambda level: None)
+    monkeypatch.setattr(service, "XiboClient", lambda *args: client)
+    monkeypatch.setattr(service, "generate_calendar_images", lambda *args, **kwargs: [image])
+    monkeypatch.setattr(service, "_upload_media_with_optional_layout", lambda *args, **kwargs: uploads.append(kwargs) or {"mediaId": "media-1"})
+
+    assert service.main() == 0
+    assert [name for name, _details in client.calls].count("get_dataset") == 1
+    assert len(uploads) == 1

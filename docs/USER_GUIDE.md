@@ -297,9 +297,9 @@ than one day show the date range in the header and each event's date beside its 
 
 The Xibo Docker stack includes an optional `calendar-render-service` container. It reads the
 calendar DataSet populated by `--upload-calendar`, renders `today`, `this_week`, and
-`next_2_weeks` at local midnight, and uploads fresh PNG media without requiring the uploader PC
+`next_2_weeks` on its cron schedule, and uploads fresh PNG media without requiring the uploader PC
 to run each day. It also runs one render/upload cycle immediately when the container starts or
-restarts, so a restart does not have to wait until the next midnight to refresh stale calendars.
+restarts by default, so a restart does not have to wait for the next scheduled tick.
 The existing `--upload-calendar-html` command remains available as a manual or fallback path.
 
 Create its environment file from `services/calendar_render_service/.env.example`, then start the
@@ -314,6 +314,11 @@ docker compose logs -f calendar-render-service
 Replace the placeholder `CMS_CLIENT_ID` and `CMS_CLIENT_SECRET` with a dedicated Xibo OAuth
 client credential. Set `CMS_BASE_URL=http://cms-web` for the in-network CMS address. The service
 has no published port and uses `CALENDAR_EVENT_RETENTION_DAYS` independently from the uploader.
+Set `CALENDAR_RENDER_CRON` in the service `.env` to change the schedule, for example `0 6 * * *`
+for 06:00 daily, and set `TZ` to the matching IANA timezone. Set
+`CALENDAR_RENDER_RUN_ON_START=false` to disable the startup cycle. Restart the container after
+changing these values. Each cycle logs its completion counts; a failed cycle logs an exception and
+exits, while the scheduler remains available for the next tick.
 
 ### Customizing Views
 

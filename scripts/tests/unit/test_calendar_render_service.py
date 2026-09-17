@@ -1,4 +1,5 @@
 from datetime import datetime
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -43,6 +44,7 @@ def make_config(tmp_path: Path):
         trigger_collectnow_on_changes=False,
         xibo_upload_field="files",
         cleanup_old_view_uploads=True,
+        log_level="INFO",
         dry_run=False,
     )
 
@@ -170,12 +172,6 @@ def test_cleanup_previous_view_uploads_ignores_failed_old_items(monkeypatch, tmp
     service.cleanup_previous_view_uploads(StubXibo(), cfg, "today", "media-current")
 
 
-def test_seconds_until_midnight() -> None:
-    now = datetime.fromisoformat("2026-09-10T23:30:00+00:00")
-
-    assert service.seconds_until_midnight(now, "UTC") == 1800
-
-
 def test_setup_logging_configures_root_logger_level(monkeypatch) -> None:
     captured = {}
     monkeypatch.setattr(
@@ -189,50 +185,25 @@ def test_setup_logging_configures_root_logger_level(monkeypatch) -> None:
     assert captured["level"] == service.logging.DEBUG
 
 
-def test_run_forever_uses_configured_cadence_after_first_midnight(monkeypatch, tmp_path: Path) -> None:
-    cfg = make_config(tmp_path)
-    cfg.schedule_seconds = 900
-    sleeps = []
-    calls = []
-
-    def stop_after_second_sleep(seconds):
-        sleeps.append(seconds)
-        if len(sleeps) == 2:
-            raise RuntimeError("stop test scheduler")
-
-    monkeypatch.setattr(service, "seconds_until_midnight", lambda now, timezone: 1800)
-
-    try:
-        service.run_forever(
-            cfg,
-            job=lambda config, now=None: calls.append(now),
-            now_fn=lambda: datetime.fromisoformat("2026-09-10T23:30:00+00:00"),
-            sleep_fn=stop_after_second_sleep,
-        )
-    except RuntimeError as error:
-        assert str(error) == "stop test scheduler"
-
-    assert sleeps == [1800, 900]
-    assert len(calls) == 2
-
-
-def test_run_forever_runs_immediately_on_startup_before_first_sleep(monkeypatch, tmp_path: Path) -> None:
+def test_main_runs_one_cycle_and_returns_success(monkeypatch, tmp_path: Path) -> None:
     cfg = make_config(tmp_path)
     calls = []
+    monkeypatch.setattr(service, "load_config", lambda: cfg)
+    monkeypatch.setattr(service, "setup_logging", lambda level: None)
+    monkeypatch.setattr(service, "run_once", lambda config: calls.append(config))
 
-    def stop_after_first_sleep(seconds):
-        raise RuntimeError("stop test scheduler")
+    assert service.main() == 0
+    assert calls == [cfg]
 
-    monkeypatch.setattr(service, "seconds_until_midnight", lambda now, timezone: 1800)
 
-    try:
-        service.run_forever(
-            cfg,
-            job=lambda config, now=None: calls.append(now),
-            now_fn=lambda: datetime.fromisoformat("2026-09-10T23:30:00+00:00"),
-            sleep_fn=stop_after_first_sleep,
-        )
-    except RuntimeError as error:
-        assert str(error) == "stop test scheduler"
+def test_main_logs_failure_and_returns_nonzero(monkeypatch, tmp_path: Path, caplog) -> None:
+    monkeypatch.setattr(service, "load_config", lambda: make_config(tmp_path))
+    monkeypatch.setattr(service, "setup_logging", lambda level: None)
+    monkeypatch.setattr(service, "run_once", lambda config: (_ for _ in ()).throw(RuntimeError("boom")))
 
-    assert len(calls) == 1
+    with caplog.at_level(logging.ERROR):
+        assert service.main() == 1
+
+    assert "Calendar render cycle failed" in caplog.text
+    assert not hasattr(service, "run_forever")
+    assert not hasattr(service, "seconds_until_midnight")

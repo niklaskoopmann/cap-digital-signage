@@ -227,6 +227,86 @@ def test_deploy_discards_stale_checkout_before_assigning(monkeypatch, tmp_path) 
     ]
 
 
+def test_create_fullscreen_layout_uses_existing_checkout_when_discard_fails(monkeypatch) -> None:
+    client = XiboClient("http://cms", verify_tls=False, timeout=10)
+    calls: list[tuple[str, str]] = []
+    already_checked_out = _Response({"message": "already checked out"})
+    already_checked_out.ok = False
+    already_checked_out.status_code = 422
+    already_checked_out.text = "already checked out"
+    discard_failed = _Response({"message": "layout is locked"})
+    discard_failed.ok = False
+    discard_failed.status_code = 409
+    background_requires_checkout = _Response({"message": "checkout required"})
+    background_requires_checkout.ok = False
+    background_requires_checkout.status_code = 422
+    background_requires_checkout.text = "checkout required"
+    responses = iter([
+        _Response({"data": [{"resolutionId": 1}]}),
+        _Response({"data": {"layoutId": 559, "publishedStatus": "Draft"}}),
+        background_requires_checkout,
+        already_checked_out,
+        discard_failed,
+        _Response({"data": {"layoutId": 559}}),
+    ])
+
+    def request(method: str, url: str, **kwargs):
+        calls.append((method, url))
+        return next(responses)
+
+    monkeypatch.setattr(client, "_request", request)
+    result = client.create_fullscreen_layout({"mediaId": "157", "name": "calendar_today.png"})
+
+    assert result["layoutId"] == 559
+    assert calls == [
+        ("GET", "http://cms/api/resolution"),
+        ("POST", "http://cms/api/layout"),
+        ("PUT", "http://cms/api/layout/background/559"),
+        ("PUT", "http://cms/api/layout/checkout/559"),
+        ("PUT", "http://cms/api/layout/discard/559"),
+        ("PUT", "http://cms/api/layout/background/559"),
+    ]
+
+
+def test_create_fullscreen_layout_reports_background_failure_after_discard_failure(monkeypatch) -> None:
+    client = XiboClient("http://cms", verify_tls=False, timeout=10)
+    calls: list[str] = []
+    already_checked_out = _Response({"message": "already checked out"})
+    already_checked_out.ok = False
+    already_checked_out.status_code = 422
+    already_checked_out.text = "already checked out"
+    discard_failed = _Response({"message": "layout is locked"})
+    discard_failed.ok = False
+    discard_failed.status_code = 409
+    background_failed = _Response({"message": "still locked"})
+    background_failed.ok = False
+    background_failed.status_code = 422
+    background_failed.text = "still locked"
+    background_requires_checkout = _Response({"message": "checkout required"})
+    background_requires_checkout.ok = False
+    background_requires_checkout.status_code = 422
+    background_requires_checkout.text = "checkout required"
+    responses = iter([
+        _Response({"data": [{"resolutionId": 1}]}),
+        _Response({"data": {"layoutId": 559, "publishedStatus": "Draft"}}),
+        background_requires_checkout,
+        already_checked_out,
+        discard_failed,
+        background_failed,
+    ])
+
+    def request(method: str, url: str, **kwargs):
+        calls.append(url)
+        return next(responses)
+
+    monkeypatch.setattr(client, "_request", request)
+
+    with pytest.raises(RuntimeError, match="existing checkout \(422\): still locked"):
+        client.create_fullscreen_layout({"mediaId": "157", "name": "calendar_today.png"})
+
+    assert not any(url.endswith("/layout/checkout/559") for url in calls[4:])
+
+
 def test_find_library_item_by_name_uses_exact_match(monkeypatch) -> None:
     client = XiboClient("http://cms", verify_tls=False, timeout=10)
 

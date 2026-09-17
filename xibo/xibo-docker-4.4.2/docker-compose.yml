@@ -50,6 +50,8 @@ services:
             context: ../..
             dockerfile: services/calendar_render_service/Dockerfile
         env_file: ../../services/calendar_render_service/.env
+        environment:
+            - TZ=Europe/Berlin
         depends_on:
             - cms-web
         restart: always

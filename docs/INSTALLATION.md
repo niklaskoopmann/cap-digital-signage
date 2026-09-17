@@ -220,7 +220,9 @@ Watch the service logs:
 docker compose logs -f calendar-render-service
 ```
 
-The service runs once at startup, then daily according to `CALENDAR_TIMEZONE` and `CALENDAR_RENDER_SCHEDULE_SECONDS`.
+The service runs one cycle at startup when `CALENDAR_RENDER_RUN_ON_START=true`, then follows the
+five-field `CALENDAR_RENDER_CRON` expression (default `0 0 * * *`). Set `TZ` to the same local
+timezone used for the schedule. Changes to these variables require a container restart.
 
 ## 8. First Launch of Portainer
 

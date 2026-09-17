@@ -12,6 +12,12 @@ work that has already been completed.
 
 ## Changes
 
+### 2026-09-17 - Cron-based scheduling for the calendar render service
+- Status: `Implemented`
+- Summary: Move the calendar render service off its in-process sleep loop onto `supercronic` cron scheduling inside the container. The job becomes a one-shot process that runs a single cycle and exits with a meaningful status, with `CALENDAR_RENDER_CRON` (default `0 0 * * *`), `CALENDAR_RENDER_RUN_ON_START`, and `TZ`; `flock` prevents overlapping cycles so a crashed or killed cycle can no longer stop or drift the schedule.
+- Plan: `docs/PLAN.md`
+- Validation: 28 focused and 183 full offline tests passed; live Docker validation passed for image checksum verification, startup execution, scheduled ticks, overlap protection, startup failure isolation, timezone handling, and CMS cleanup.
+
 ### 2026-09-14 - Bounded multi-event calendar layout and embedded background
 - Status: `Implemented`
 - Summary: Render calendar images with one column through four events, two across-row columns through eight events, an explicit `8 of N events` cap beyond eight, and a self-contained background image that resolves in Playwright-generated Xibo uploads without viewport scrolling. Added asset-path validation, boundary tests, and a local Playwright layout harness.

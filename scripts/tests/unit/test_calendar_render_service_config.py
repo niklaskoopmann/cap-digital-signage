@@ -17,14 +17,16 @@ def test_service_config_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CMS_CLIENT_ID", "service-id")
     monkeypatch.setenv("CMS_CLIENT_SECRET", "service-secret")
     monkeypatch.delenv("CALENDAR_EVENT_RETENTION_DAYS", raising=False)
-    monkeypatch.delenv("CALENDAR_RENDER_SCHEDULE_SECONDS", raising=False)
+    monkeypatch.delenv("CALENDAR_RENDER_CRON", raising=False)
+    monkeypatch.delenv("CALENDAR_RENDER_RUN_ON_START", raising=False)
     monkeypatch.delenv("CALENDAR_CLEANUP_OLD_VIEW_UPLOADS", raising=False)
 
     cfg = load_config()
 
     assert cfg.calendar_event_retention_days == 30
     assert cfg.calendar_html_views == ("today", "this_week", "next_2_weeks")
-    assert cfg.schedule_seconds == 86400
+    assert cfg.render_cron == "0 0 * * *"
+    assert cfg.run_on_start is True
     assert cfg.cleanup_old_view_uploads is True
     assert cfg.log_level == "INFO"
 
@@ -38,3 +40,30 @@ def test_service_config_override_cleanup_flag(monkeypatch: pytest.MonkeyPatch) -
     cfg = load_config()
 
     assert cfg.cleanup_old_view_uploads is False
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["0 0 * *", "", "0 0 * * *\n1 2 * * *", "\n0 0 * * *", "0 0 * * *\n"],
+)
+def test_service_config_rejects_invalid_cron(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    monkeypatch.setenv("CMS_BASE_URL", "http://cms-web")
+    monkeypatch.setenv("CMS_CLIENT_ID", "service-id")
+    monkeypatch.setenv("CMS_CLIENT_SECRET", "service-secret")
+    monkeypatch.setenv("CALENDAR_RENDER_CRON", value)
+
+    with pytest.raises(ValueError, match="CALENDAR_RENDER_CRON"):
+        load_config()
+
+
+def test_service_config_overrides_cron_and_startup(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CMS_BASE_URL", "http://cms-web")
+    monkeypatch.setenv("CMS_CLIENT_ID", "service-id")
+    monkeypatch.setenv("CMS_CLIENT_SECRET", "service-secret")
+    monkeypatch.setenv("CALENDAR_RENDER_CRON", "*/15 6-18 * * 1-5")
+    monkeypatch.setenv("CALENDAR_RENDER_RUN_ON_START", "false")
+
+    cfg = load_config()
+
+    assert cfg.render_cron == "*/15 6-18 * * 1-5"
+    assert cfg.run_on_start is False
