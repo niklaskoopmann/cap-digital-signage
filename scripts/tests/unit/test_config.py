@@ -1,5 +1,7 @@
 """Unit tests for scripts/xibo_sync/config.py."""
 
+from pathlib import Path
+
 import pytest
 
 from xibo_sync.config import getenv_bool, getenv_int, load_config
@@ -7,7 +9,8 @@ from xibo_sync.config import getenv_bool, getenv_int, load_config
 REQUIRED_ENV = {
     "CMS_BASE_URL": "http://192.168.1.1",
     "AUTH_MODE": "none",
-    "LOCAL_MEDIA_DIR": "../media",
+    "SHAREPOINT_MEDIA_DIR": "../media",
+    "SYNC_MODE": "upload",
 }
 
 
@@ -29,6 +32,18 @@ def _clear_optional_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "CALENDAR_PACKAGE_RETENTION_DAYS",
         "CALENDAR_EVENT_RETENTION_DAYS",
         "DELETE_LAYOUT_WITH_MEDIA",
+        "SYNC_MODE",
+        "CALENDAR_IMAGE_DIR",
+        "GRAPH_TENANT_ID",
+        "GRAPH_CLIENT_ID",
+        "GRAPH_CLIENT_SECRET",
+        "GRAPH_SHAREPOINT_SITE_ID",
+        "GRAPH_SHAREPOINT_FOLDER",
+        "GRAPH_CALENDAR_USER_ID",
+        "GRAPH_CALENDAR_DAYS_AHEAD",
+        "GRAPH_CALENDAR_KEEP_SNAPSHOTS",
+        "GRAPH_TIMEOUT_SECONDS",
+        "GRAPH_BASE_URL",
     ):
         monkeypatch.delenv(key, raising=False)
 
@@ -49,12 +64,24 @@ def test_load_config_requires_cms_base_url(monkeypatch: pytest.MonkeyPatch) -> N
         load_config()
 
 
-def test_load_config_requires_local_media_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_load_config_requires_sharepoint_media_dir(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CMS_BASE_URL", "http://192.168.1.1")
     monkeypatch.setenv("AUTH_MODE", "none")
-    monkeypatch.delenv("LOCAL_MEDIA_DIR", raising=False)
+    monkeypatch.setenv("SYNC_MODE", "upload")
+    monkeypatch.delenv("SHAREPOINT_MEDIA_DIR", raising=False)
 
-    with pytest.raises(ValueError, match="LOCAL_MEDIA_DIR"):
+    with pytest.raises(ValueError, match="SHAREPOINT_MEDIA_DIR"):
+        load_config()
+
+
+def test_load_config_does_not_accept_legacy_local_media_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CMS_BASE_URL", "http://192.168.1.1")
+    monkeypatch.setenv("AUTH_MODE", "none")
+    monkeypatch.setenv("SYNC_MODE", "upload")
+    monkeypatch.delenv("SHAREPOINT_MEDIA_DIR", raising=False)
+    monkeypatch.setenv("LOCAL_MEDIA_DIR", "../media")
+
+    with pytest.raises(ValueError, match="SHAREPOINT_MEDIA_DIR"):
         load_config()
 
 
@@ -92,6 +119,79 @@ def test_load_config_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cfg.dry_run is False
     assert cfg.delete_layout_with_media is False
     assert cfg.calendar_event_retention_days == 30
+    assert cfg.sharepoint_media_dir == Path("../media")
+    assert cfg.calendar_image_dir == Path("../calendar_images")
+    assert cfg.sync_mode == "upload"
+    assert cfg.graph_sharepoint_folder == "test_images"
+    assert cfg.graph_calendar_days_ahead == 14
+    assert cfg.graph_calendar_keep_snapshots == 10
+    assert cfg.graph_timeout_seconds == 30
+
+
+def test_load_config_requires_graph_settings_for_download(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required_env(monkeypatch, SYNC_MODE="download")
+
+    with pytest.raises(ValueError, match="GRAPH_TENANT_ID.*GRAPH_CALENDAR_USER_ID"):
+        load_config()
+
+
+def test_load_config_graph_settings_required_only_for_download_modes(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required_env(monkeypatch, SYNC_MODE="upload")
+
+    assert load_config().graph_tenant_id is None
+
+
+def test_load_config_defaults_to_full_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required_env(monkeypatch)
+    monkeypatch.delenv("SYNC_MODE", raising=False)
+    for key, value in {
+        "GRAPH_TENANT_ID": "tenant",
+        "GRAPH_CLIENT_ID": "client",
+        "GRAPH_CLIENT_SECRET": "secret",
+        "GRAPH_SHAREPOINT_SITE_ID": "site",
+        "GRAPH_CALENDAR_USER_ID": "user@example.com",
+    }.items():
+        monkeypatch.setenv(key, value)
+
+    cfg = load_config()
+
+    assert cfg.sync_mode == "full"
+    assert cfg.graph_base_url == "https://graph.microsoft.com/v1.0"
+
+
+def test_load_config_sync_mode_override_and_validation(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required_env(monkeypatch, SYNC_MODE="upload")
+    graph_values = {
+        "GRAPH_TENANT_ID": "tenant",
+        "GRAPH_CLIENT_ID": "client",
+        "GRAPH_CLIENT_SECRET": "secret",
+        "GRAPH_SHAREPOINT_SITE_ID": "site",
+        "GRAPH_CALENDAR_USER_ID": "user@example.com",
+    }
+    for key, value in graph_values.items():
+        monkeypatch.setenv(key, value)
+
+    assert load_config(sync_mode=" DOWNLOAD ").sync_mode == "download"
+    with pytest.raises(ValueError, match="SYNC_MODE"):
+        load_config(sync_mode="invalid")
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("GRAPH_CALENDAR_DAYS_AHEAD", "0"),
+        ("GRAPH_CALENDAR_KEEP_SNAPSHOTS", "0"),
+        ("GRAPH_TIMEOUT_SECONDS", "0"),
+    ],
+)
+def test_load_config_rejects_nonpositive_graph_limits(
+    monkeypatch: pytest.MonkeyPatch, key: str, value: str
+) -> None:
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv(key, value)
+
+    with pytest.raises(ValueError, match=key):
+        load_config()
 
 
 def test_load_config_calendar_event_retention_days_can_override(monkeypatch: pytest.MonkeyPatch) -> None:

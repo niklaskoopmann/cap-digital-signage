@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from xibo_sync.app import main
+import truststore
+
+# Trust OS-installed CAs (e.g. corporate TLS inspection roots) instead of only certifi.
+truststore.inject_into_ssl()
+
+from xibo_sync.app import main  # noqa: E402
 
 
 if __name__ == "__main__":

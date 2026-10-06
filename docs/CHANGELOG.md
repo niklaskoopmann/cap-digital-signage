@@ -12,6 +12,11 @@ work that has already been completed.
 
 ## Changes
 
+### 2026-10-06 - Two-phase sync with Microsoft Graph download
+- Status: `Planned`
+- Summary: Add phase 1 that downloads Outlook calendar events (`calendarView`) and SharePoint media through Microsoft Graph (MSAL client credentials) while online, pause for the manual switch to the Xibo hotspot with a verified health check, then run the existing media sync and calendar DataSet upload as phase 2. Adds `SYNC_MODE`/`--mode` (`full`, `download`, `upload`), renames `LOCAL_MEDIA_DIR` to `SHAREPOINT_MEDIA_DIR`, adds `CALENDAR_IMAGE_DIR`, and removes `--upload-calendar`.
+- Plan: [docs/PLAN.md](PLAN.md)
+
 ### 2026-09-17 - Cron-based scheduling for the calendar render service
 - Status: `Implemented`
 - Summary: Move the calendar render service off its in-process sleep loop onto `supercronic` cron scheduling inside the container. The job becomes a one-shot process that runs a single cycle and exits with a meaningful status, with `CALENDAR_RENDER_CRON` (default `0 0 * * *`), `CALENDAR_RENDER_RUN_ON_START`, and `TZ`; `flock` prevents overlapping cycles so a crashed or killed cycle can no longer stop or drift the schedule.

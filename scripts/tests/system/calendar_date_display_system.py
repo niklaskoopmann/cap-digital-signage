@@ -164,11 +164,13 @@ def _run_scenario(api: CmsApi, selected_env: dict[str, str], root: Path, token: 
     multi_day_view = f"system_multi_day_{token}"
     managed_tag = f"system-test-calendar-dates-{token}"
     media_dir = root / "media"
+    image_dir = root / "calendar_images"
     direct_media_dir = root / "direct-media"
     snapshot_dir = root / "snapshot"
     isolated_scripts = root / "scripts"
     template_dir = isolated_scripts / "templates" / "calendar"
     media_dir.mkdir(parents=True)
+    image_dir.mkdir(parents=True)
     direct_media_dir.mkdir(parents=True)
     snapshot_dir.mkdir(parents=True)
     isolated_scripts.mkdir(parents=True)
@@ -247,7 +249,8 @@ def _run_scenario(api: CmsApi, selected_env: dict[str, str], root: Path, token: 
     scenario_env = dict(selected_env)
     scenario_env.update(
         {
-            "LOCAL_MEDIA_DIR": str(media_dir),
+            "SHAREPOINT_MEDIA_DIR": str(media_dir),
+            "CALENDAR_IMAGE_DIR": str(image_dir),
             "CALENDAR_JSON_PATH": str(snapshot_dir),
             "CALENDAR_ENABLE_HTML": "true",
             "CALENDAR_HTML_VIEWS": f"{one_day_view},{multi_day_view}",
@@ -287,7 +290,7 @@ def _run_scenario(api: CmsApi, selected_env: dict[str, str], root: Path, token: 
             f"Non-dry-run command failed ({completed.returncode}):\n{_redact(output[-6000:], selected_env)}"
         )
 
-    generated_pngs = sorted(media_dir.glob("calendar_*.png"))
+    generated_pngs = sorted(image_dir.glob("calendar_*.png"))
     assert len(generated_pngs) == 2, f"Expected two generated PNGs, found {generated_pngs}"
     for path in generated_pngs:
         assert _png_dimensions(path) == (1920, 1080)

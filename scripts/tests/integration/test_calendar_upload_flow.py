@@ -62,7 +62,8 @@ def calendar_snapshot_dir(tmp_path: Path) -> Path:
 def _load_test_config(monkeypatch: pytest.MonkeyPatch, calendar_dir: Path):
     monkeypatch.setenv("CMS_BASE_URL", "http://192.168.1.1")
     monkeypatch.setenv("AUTH_MODE", "none")
-    monkeypatch.setenv("LOCAL_MEDIA_DIR", "../media")
+    monkeypatch.setenv("SHAREPOINT_MEDIA_DIR", "../media")
+    monkeypatch.setenv("SYNC_MODE", "upload")
     monkeypatch.setenv("CALENDAR_JSON_PATH", str(calendar_dir))
     monkeypatch.setenv("CALENDAR_DATASET_NAME", "office_calendar_events")
     monkeypatch.setenv("TRIGGER_COLLECTNOW_ON_CHANGES", "false")

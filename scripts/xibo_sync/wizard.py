@@ -8,6 +8,12 @@ from .env_io import read_env_file, write_env_file
 from .ui import prompt_edit, prompt_password, ui_header, ui_ok
 
 
+def must_be_sync_mode(value: str) -> None:
+    """Validate a supported phase selection for the configuration wizard."""
+    if value.strip().lower() not in ("full", "download", "upload"):
+        raise ValueError("Allowed: full | download | upload")
+
+
 def config_wizard(env_path: Path) -> None:
     """Prompt the operator for settings and persist them to ``scripts/.env``.
 
@@ -73,15 +79,52 @@ def config_wizard(env_path: Path) -> None:
         env_data.setdefault("CMS_CLIENT_ID", get("CMS_CLIENT_ID", ""))
         env_data.setdefault("CMS_CLIENT_SECRET", get("CMS_CLIENT_SECRET", ""))
 
-    env_data["LOCAL_MEDIA_DIR"] = prompt_edit(
-        "LOCAL_MEDIA_DIR",
-        get("LOCAL_MEDIA_DIR", "../media"),
+    env_data["SHAREPOINT_MEDIA_DIR"] = prompt_edit(
+        "SHAREPOINT_MEDIA_DIR",
+        get("SHAREPOINT_MEDIA_DIR", "../media"),
         help_text="Relative to scripts/ recommended (../media).",
+    )
+    env_data["CALENDAR_IMAGE_DIR"] = prompt_edit(
+        "CALENDAR_IMAGE_DIR",
+        get("CALENDAR_IMAGE_DIR", "../calendar_images"),
+        help_text="Output directory for calendar PNG uploads, relative to scripts/.",
+    )
+    env_data["SYNC_MODE"] = prompt_edit(
+        "SYNC_MODE",
+        get("SYNC_MODE", "full"),
+        help_text="full (download, hotspot switch, upload) | download | upload.",
+        validator=must_be_sync_mode,
+    )
+    env_data["GRAPH_TENANT_ID"] = prompt_edit("GRAPH_TENANT_ID", get("GRAPH_TENANT_ID", ""))
+    env_data["GRAPH_CLIENT_ID"] = prompt_edit("GRAPH_CLIENT_ID", get("GRAPH_CLIENT_ID", ""))
+    env_data["GRAPH_CLIENT_SECRET"] = prompt_password(
+        "GRAPH_CLIENT_SECRET", get("GRAPH_CLIENT_SECRET", "")
+    )
+    env_data["GRAPH_SHAREPOINT_SITE_ID"] = prompt_edit(
+        "GRAPH_SHAREPOINT_SITE_ID", get("GRAPH_SHAREPOINT_SITE_ID", "")
+    )
+    env_data["GRAPH_SHAREPOINT_FOLDER"] = prompt_edit(
+        "GRAPH_SHAREPOINT_FOLDER", get("GRAPH_SHAREPOINT_FOLDER", "test_images")
+    )
+    env_data["GRAPH_CALENDAR_USER_ID"] = prompt_edit(
+        "GRAPH_CALENDAR_USER_ID", get("GRAPH_CALENDAR_USER_ID", "")
+    )
+    env_data["GRAPH_CALENDAR_DAYS_AHEAD"] = prompt_edit(
+        "GRAPH_CALENDAR_DAYS_AHEAD", get("GRAPH_CALENDAR_DAYS_AHEAD", "14"), validator=lambda v: int(v)
+    )
+    env_data["GRAPH_CALENDAR_KEEP_SNAPSHOTS"] = prompt_edit(
+        "GRAPH_CALENDAR_KEEP_SNAPSHOTS", get("GRAPH_CALENDAR_KEEP_SNAPSHOTS", "10"), validator=lambda v: int(v)
+    )
+    env_data["GRAPH_TIMEOUT_SECONDS"] = prompt_edit(
+        "GRAPH_TIMEOUT_SECONDS", get("GRAPH_TIMEOUT_SECONDS", "30"), validator=lambda v: int(v)
+    )
+    env_data["GRAPH_BASE_URL"] = prompt_edit(
+        "GRAPH_BASE_URL", get("GRAPH_BASE_URL", "https://graph.microsoft.com/v1.0")
     )
     env_data["CALENDAR_JSON_PATH"] = prompt_edit(
         "CALENDAR_JSON_PATH",
         get("CALENDAR_JSON_PATH", r"C:\Users\rogrun\OneDrive - Capgemini\Xibo_Sync\office_calendar"),
-        help_text="Calendar snapshot directory or JSON file. Relative paths are resolved from scripts/.",
+        help_text="Directory required for full/download; upload also accepts a JSON file. Relative paths resolve from scripts/.",
     )
     env_data["CALENDAR_DATASET_NAME"] = prompt_edit(
         "CALENDAR_DATASET_NAME",

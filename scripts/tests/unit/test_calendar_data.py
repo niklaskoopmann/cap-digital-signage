@@ -10,6 +10,8 @@ from xibo_sync.calendar_data import (
     csv_bytes,
     dataset_rows_to_events,
     filter_events_by_retention,
+    find_latest_snapshot,
+    list_snapshots,
     load_events,
 )
 
@@ -45,6 +47,27 @@ class CalendarDataTests(unittest.TestCase):
                 snapshot.name, "office_calendar_events_2026-08-19_13-10-01.json")
             self.assertEqual([row["eventIdentifier"]
                              for row in rows], ["active"])
+
+    def test_list_snapshots_returns_only_matching_names_with_timestamps(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            directory = Path(temp_dir)
+            old_path = directory / "office_calendar_events_2026-08-18_13-10-01.json"
+            new_path = directory / "office_calendar_events_2026-08-19_13-10-01.json"
+            old_path.touch()
+            new_path.touch()
+            (directory / "other.json").touch()
+            (directory / "office_calendar_events_2026-99-99_13-10-01.json").touch()
+
+            snapshots = list_snapshots(directory)
+
+            self.assertEqual(
+                snapshots,
+                [
+                    (datetime(2026, 8, 18, 13, 10, 1), old_path),
+                    (datetime(2026, 8, 19, 13, 10, 1), new_path),
+                ],
+            )
+            self.assertEqual(find_latest_snapshot(directory), new_path)
 
     def test_flattens_nested_fields_and_csv_quotes_text(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -248,7 +248,9 @@ def _setup_env(
 ) -> None:
     monkeypatch.setenv("CMS_BASE_URL", "http://192.168.1.1")
     monkeypatch.setenv("AUTH_MODE", "none")
-    monkeypatch.setenv("LOCAL_MEDIA_DIR", "../media")
+    monkeypatch.setenv("SHAREPOINT_MEDIA_DIR", "../media")
+    monkeypatch.setenv("CALENDAR_IMAGE_DIR", "../calendar_images")
+    monkeypatch.setenv("SYNC_MODE", "upload")
     monkeypatch.setenv("CALENDAR_JSON_PATH", str(calendar_dir))
     monkeypatch.setenv("CALENDAR_ENABLE_HTML", "true")
     monkeypatch.setenv("CALENDAR_HTML_VIEWS", "today,this_week,next_2_weeks")
@@ -311,7 +313,7 @@ def test_run_calendar_html_upload_generates_and_uploads_all_views(
         view_type, start_date = filename.removeprefix("calendar_").removesuffix(".png").rsplit("_", 1)
         assert upload["tags"][:3] == [cfg.managed_tag, "calendar-html", "calendar-image"]
         assert set(upload["tags"]) == required_tag_prefix | {f"calendar-{view_type}", start_date}
-        assert upload["file_path"].parent == (tmp_path / "../media").resolve()
+        assert upload["file_path"].parent == (tmp_path / "../calendar_images").resolve()
     layout_mutations = {
         "create_fullscreen_layout",
         "publish_layout",
@@ -455,7 +457,7 @@ def test_run_calendar_html_upload_dry_run_skips_writes_and_cms(
     assert exit_code == 0
 
     assert not (tmp_path / "calendar_packages").exists()
-    expected_media_dir = (tmp_path / "../media").resolve()
+    expected_media_dir = (tmp_path / "../calendar_images").resolve()
     expected_date = datetime.now(timezone.utc).date().isoformat()
     dry_run_messages = [message for message in reported if "Would render and upload" in message]
     assert len(dry_run_messages) == 3
@@ -557,7 +559,9 @@ def test_run_calendar_html_upload_berlin_timezone_renders_local_times(
     # Setup with Berlin timezone explicitly
     monkeypatch.setenv("CMS_BASE_URL", "http://192.168.1.1")
     monkeypatch.setenv("AUTH_MODE", "none")
-    monkeypatch.setenv("LOCAL_MEDIA_DIR", "../media")
+    monkeypatch.setenv("SHAREPOINT_MEDIA_DIR", "../media")
+    monkeypatch.setenv("CALENDAR_IMAGE_DIR", "../calendar_images")
+    monkeypatch.setenv("SYNC_MODE", "upload")
     monkeypatch.setenv("CALENDAR_JSON_PATH", str(calendar_dir))
     monkeypatch.setenv("CALENDAR_ENABLE_HTML", "true")
     monkeypatch.setenv("CALENDAR_HTML_VIEWS", "this_week")

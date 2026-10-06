@@ -218,7 +218,8 @@ def _configure(
 ) -> None:
     monkeypatch.setenv("CMS_BASE_URL", "http://cms")
     monkeypatch.setenv("AUTH_MODE", "none")
-    monkeypatch.setenv("LOCAL_MEDIA_DIR", str(local_dir))
+    monkeypatch.setenv("SHAREPOINT_MEDIA_DIR", str(local_dir))
+    monkeypatch.setenv("SYNC_MODE", "upload")
     monkeypatch.setenv("COMPARE_MODE", "filename")
     monkeypatch.setenv("UPLOAD_NEW_LOCAL", "true")
     monkeypatch.setenv("DELETE_REMOTE_NOT_LOCAL", "true")
@@ -226,6 +227,7 @@ def _configure(
     monkeypatch.setenv("CREATE_LAYOUT_PER_UPLOAD", "true")
     monkeypatch.setenv("MANAGED_TAG", "xibo-sync")
     monkeypatch.setenv("DRY_RUN", "true" if dry_run else "false")
+    monkeypatch.setattr(app, "run_calendar_upload", lambda *args, **kwargs: 0)
     monkeypatch.delenv("DISPLAY_GROUP_ID", raising=False)
     monkeypatch.delenv("TRIGGER_COLLECTNOW_ON_CHANGES", raising=False)
 
@@ -254,7 +256,8 @@ def _run_main(
         return client
 
     monkeypatch.setattr(app, "XiboClient", factory)
-    monkeypatch.setattr(app, "load_config", lambda: cfg)
+    monkeypatch.setattr(app, "load_config", lambda **kwargs: cfg)
+    monkeypatch.setattr(app, "run_calendar_upload", lambda *args, **kwargs: 0)
     monkeypatch.setattr(app, "read_env_file", lambda path: {})
     monkeypatch.setattr(app, "write_env_file", lambda path, values: None)
     monkeypatch.setattr(app, "setup_logging", lambda *args: None)
@@ -340,7 +343,7 @@ def test_media_layout_final_publish_releases_tag_created_draft(monkeypatch, tmp_
     cfg.trigger_collectnow_on_changes = False
     fake = StatefulLayoutLifecycleFakeSyncClient("http://cms", False, 10)
     monkeypatch.setattr(app, "XiboClient", lambda *args: fake)
-    monkeypatch.setattr(app, "load_config", lambda: cfg)
+    monkeypatch.setattr(app, "load_config", lambda **kwargs: cfg)
     monkeypatch.setattr(app, "read_env_file", lambda path: {})
     monkeypatch.setattr(app, "write_env_file", lambda path, values: None)
     monkeypatch.setattr(app, "setup_logging", lambda *args: None)
@@ -363,7 +366,7 @@ def test_media_layout_retries_publish_with_authoritative_id_after_draft_404(monk
     cfg.trigger_collectnow_on_changes = False
     fake = DraftPublishRetryFakeSyncClient("http://cms", False, 10)
     monkeypatch.setattr(app, "XiboClient", lambda *args: fake)
-    monkeypatch.setattr(app, "load_config", lambda: cfg)
+    monkeypatch.setattr(app, "load_config", lambda **kwargs: cfg)
     monkeypatch.setattr(app, "read_env_file", lambda path: {})
     monkeypatch.setattr(app, "write_env_file", lambda path, values: None)
     monkeypatch.setattr(app, "setup_logging", lambda *args: None)
@@ -396,7 +399,7 @@ def test_media_layout_retries_publish_after_tag_spawns_new_draft(monkeypatch, tm
     cfg.trigger_collectnow_on_changes = False
     fake = TagSpawnsNewDraftFakeSyncClient("http://cms", False, 10)
     monkeypatch.setattr(app, "XiboClient", lambda *args: fake)
-    monkeypatch.setattr(app, "load_config", lambda: cfg)
+    monkeypatch.setattr(app, "load_config", lambda **kwargs: cfg)
     monkeypatch.setattr(app, "read_env_file", lambda path: {})
     monkeypatch.setattr(app, "write_env_file", lambda path, values: None)
     monkeypatch.setattr(app, "setup_logging", lambda *args: None)
@@ -434,7 +437,7 @@ def test_media_layout_publish_404_on_already_published_layout_with_no_draft_succ
     cfg.trigger_collectnow_on_changes = False
     fake = AlreadyPublishedNoDraftFakeSyncClient("http://cms", False, 10)
     monkeypatch.setattr(app, "XiboClient", lambda *args: fake)
-    monkeypatch.setattr(app, "load_config", lambda: cfg)
+    monkeypatch.setattr(app, "load_config", lambda **kwargs: cfg)
     monkeypatch.setattr(app, "read_env_file", lambda path: {})
     monkeypatch.setattr(app, "write_env_file", lambda path, values: None)
     monkeypatch.setattr(app, "setup_logging", lambda *args: None)
@@ -472,7 +475,7 @@ def test_media_layout_publish_recovery_does_not_retry_without_new_authoritative_
     cfg.trigger_collectnow_on_changes = False
     fake = client_type("http://cms", False, 10)
     monkeypatch.setattr(app, "XiboClient", lambda *args: fake)
-    monkeypatch.setattr(app, "load_config", lambda: cfg)
+    monkeypatch.setattr(app, "load_config", lambda **kwargs: cfg)
     monkeypatch.setattr(app, "read_env_file", lambda path: {})
     monkeypatch.setattr(app, "write_env_file", lambda path, values: None)
     monkeypatch.setattr(app, "setup_logging", lambda *args: None)

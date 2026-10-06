@@ -93,47 +93,58 @@ Activate `scripts/.venv` before every Python or pip command so package installs 
 
 ### Safe preview first
 
-Use dry-run mode if you want to see what would happen without uploading or deleting anything:
+Preview phase 2 without contacting Microsoft Graph or changing Xibo:
 
 ```powershell
 \.venv\Scripts\Activate.ps1
-python .\sync_xibo.py --dry-run --yes
+python .\sync_xibo.py --mode upload --dry-run --yes
 ```
 
 ### Calendar preview
 
-Preview the newest calendar snapshot without changing Xibo:
+Preview the calendar DataSet replacement using the newest local snapshot:
 
 ```powershell
 \.venv\Scripts\Activate.ps1
-python .\sync_xibo.py --upload-calendar --dry-run --yes
+python .\sync_xibo.py --mode upload --dry-run --yes
 ```
 
 Run the calendar replacement:
 
 ```powershell
 \.venv\Scripts\Activate.ps1
-python .\sync_xibo.py --upload-calendar --yes
+python .\sync_xibo.py --mode upload --yes
 ```
 
 When `CALENDAR_JSON_PATH` points to a directory, the script selects the newest file named like
 `office_calendar_events_2026-08-19_13-10-01.json`, based on the timestamp in the filename.
 
-### Real sync
+### Full sync
 
-If the machine is already on the correct network:
+The default `full` mode downloads the calendar and SharePoint media while the PC has internet,
+then asks you to connect to the Xibo PC hotspot. Confirm the switch only after connecting; the
+script checks the Xibo API before it uploads media and replaces the calendar DataSet.
 
 ```powershell
 \.venv\Scripts\Activate.ps1
 python .\sync_xibo.py --yes
 ```
 
+Use `--mode download` to run only the Microsoft Graph download phase, or `--mode upload` to skip
+Graph and run the existing Xibo media sync and calendar DataSet upload. `--mode` overrides
+`SYNC_MODE` from `.env`. The hotspot prompt is only used in `full` mode and still appears with
+`--yes`.
+
 ## Command-line options
 
 - `--config`: open the interactive configuration editor and exit.
 - `--yes` or `-y`: run non-interactively and accept defaults.
 - `--dry-run`: show the plan but do not upload or delete.
+- `--mode full|download|upload`: select both phases, downloads only, or uploads only.
 - `--delete` / `--no-delete`: force deletion behavior for that run.
+
+In `full` mode, dry-run still reads Microsoft Graph and reports intended local changes, but writes
+no snapshots, media files, or manifest. It then follows the normal hotspot and Xibo dry-run flow.
 
 Deletion behavior is controlled in two places:
 
@@ -177,7 +188,19 @@ The most important entries in `scripts/.env` are:
 - `CMS_BASE_URL`: the Xibo CMS address.
 - `AUTH_MODE`: `oauth` is recommended for a protected CMS.
 - `CMS_CLIENT_ID` and `CMS_CLIENT_SECRET`: OAuth credentials from Xibo.
-- `LOCAL_MEDIA_DIR`: the folder containing your media.
+- `SHAREPOINT_MEDIA_DIR`: downloaded SharePoint files used by phase 2; usually `../media`.
+- `CALENDAR_IMAGE_DIR`: output directory for manually rendered calendar PNGs; defaults to
+	`../calendar_images` and is kept separate from SharePoint media.
+- `SYNC_MODE`: `full` by default, or `download` / `upload`.
+- `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`: Entra ID app credentials.
+- `GRAPH_SHAREPOINT_SITE_ID` and `GRAPH_SHAREPOINT_FOLDER`: SharePoint site and top-level folder.
+- `GRAPH_CALENDAR_USER_ID`: mailbox user ID or email address whose calendar is downloaded.
+- `GRAPH_CALENDAR_DAYS_AHEAD`, `GRAPH_CALENDAR_KEEP_SNAPSHOTS`, and `GRAPH_TIMEOUT_SECONDS`:
+	calendar range, snapshot retention, and Graph request timeout.
+- `GRAPH_BASE_URL`: Graph API base URL; normally `https://graph.microsoft.com/v1.0`.
+	If SharePoint downloads fail with `SSLError`, the network inspects TLS traffic; the script trusts
+	the Windows/OS certificate store, so install the company root CA there and reinstall
+	`requirements.txt`.
 - `COMPARE_MODE`: `filename` is easiest to understand; `hash` compares file hashes.
 - `MANAGED_TAG`: protects unrelated Xibo items from deletion.
 - `ONLY_DELETE_MANAGED_TAG`: keep this enabled unless you are sure.
@@ -195,10 +218,17 @@ Calendar runs replace the DataSet contents. This avoids duplicates because Xibo'
 does not support an upsert key. The uploaded schema includes `eventIdentifier` and the other
 curated calendar fields described in the technical documentation.
 
+For `full` and `download`, the Entra ID application needs the `Calendars.Read` and
+`Sites.Read.All` application permissions with admin consent. Existing `.env` files must rename
+`LOCAL_MEDIA_DIR` to `SHAREPOINT_MEDIA_DIR`; the old key is not used as a fallback. In `full` and
+`download`, `CALENDAR_JSON_PATH` must be a directory. Upload-only mode may continue to use one JSON
+file.
+
 ## Calendar HTML Images
 
 The `--upload-calendar-html` command renders the editable HTML calendar template to 1920x1080 PNG
-images and uploads each image as normal Xibo media. With `CREATE_LAYOUT_PER_UPLOAD=true`, every
+images under `CALENDAR_IMAGE_DIR` and uploads each image as normal Xibo media. This standalone
+command does not require Graph credentials or run the hotspot flow. With `CREATE_LAYOUT_PER_UPLOAD=true`, every
 newly uploaded calendar image also gets a full-screen layout using the same publish, tag, optional
 assignment, and optional immediate-show workflow as other media. With `false`, only media is uploaded.
 
@@ -276,7 +306,7 @@ CALENDAR_AUTO_PUBLISH=true
 # Example: Europe/Berlin, Europe/Amsterdam, UTC
 CALENDAR_TIMEZONE=Europe/Berlin
 
-# Retained for compatibility; PNGs remain in LOCAL_MEDIA_DIR as normal media.
+# Retained for compatibility; PNG retention is managed separately from SharePoint downloads.
 CALENDAR_PACKAGE_RETENTION_DAYS=1
 ```
 
@@ -296,7 +326,7 @@ than one day show the date range in the header and each event's date beside its 
 ### Host-local daily refresh
 
 The Xibo Docker stack includes an optional `calendar-render-service` container. It reads the
-calendar DataSet populated by `--upload-calendar`, renders `today`, `this_week`, and
+calendar DataSet populated during phase 2 (`--mode upload`), renders `today`, `this_week`, and
 `next_2_weeks` on its cron schedule, and uploads fresh PNG media without requiring the uploader PC
 to run each day. It also runs one render/upload cycle immediately when the container starts or
 restarts by default, so a restart does not have to wait for the next scheduled tick.

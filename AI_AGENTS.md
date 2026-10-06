@@ -21,12 +21,16 @@ This repository centers on the Xibo media sync workflow.
 - The bundled Xibo CMS installation lives in `xibo/xibo-docker-4.4.2/`.
 - Use `xibo/xibo-docker-4.4.2/docker-compose.yml` for the Docker-based CMS stack.
 - The Xibo API specification is in `xibo/docs/swagger.json`.
-- Calendar snapshots are uploaded with `scripts/sync_xibo.py --upload-calendar`; the newest
-	`office_calendar_events_yyyy-MM-dd_HH-mm-ss.json` file is selected and replaces the target DataSet.
+- The default `scripts/sync_xibo.py` mode downloads calendar and SharePoint data through Graph,
+  pauses for a manual hotspot switch, then uploads to Xibo. Use `--mode download` or `--mode upload`
+  to run one phase only; the latter selects the newest timestamped snapshot for DataSet replacement.
 - `scripts/sync_xibo.py --upload-calendar-html` renders configured Jinja views to 1920x1080 PNGs in
-  `LOCAL_MEDIA_DIR` and uploads them as normal media. It does not deploy legacy reusable calendar
-  layouts, but `CREATE_LAYOUT_PER_UPLOAD=true` applies the normal per-media layout lifecycle. Install
-  the Python dependency and browser with `pip install -r requirements.txt` and `playwright install chromium`.
+  `CALENDAR_IMAGE_DIR` and uploads them as normal media. It does not require Graph credentials or
+  enter the hotspot flow. It does not deploy legacy reusable calendar layouts, but
+  `CREATE_LAYOUT_PER_UPLOAD=true` applies the normal per-media layout lifecycle. Install the Python
+  dependencies and browser with `pip install -r requirements.txt` and `playwright install chromium`.
+- Phase 1 Graph downloads use `SHAREPOINT_MEDIA_DIR` and a local `.sharepoint_manifest.json`;
+  existing `.env` files must be updated to use the new key.
 
 ## Player reference
 

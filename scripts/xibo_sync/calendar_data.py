@@ -56,8 +56,18 @@ def find_latest_snapshot(path: Path) -> Path:
     if not path.is_dir():
         raise FileNotFoundError(f"Calendar JSON path does not exist: {path}")
 
+    candidates = list_snapshots(path)
+    if not candidates:
+        raise FileNotFoundError(
+            f"No office_calendar_events_YYYY-MM-DD_HH-MM-SS.json snapshots found in: {path}"
+        )
+    return max(candidates, key=lambda item: item[0])[1]
+
+
+def list_snapshots(directory: Path) -> list[tuple[datetime, Path]]:
+    """List matching calendar snapshots paired with their parsed timestamps."""
     candidates: list[tuple[datetime, Path]] = []
-    for candidate in path.iterdir():
+    for candidate in directory.iterdir():
         if not candidate.is_file():
             continue
         match = _SNAPSHOT_NAME.match(candidate.name)
@@ -68,12 +78,7 @@ def find_latest_snapshot(path: Path) -> Path:
         except ValueError:
             continue
         candidates.append((timestamp, candidate))
-
-    if not candidates:
-        raise FileNotFoundError(
-            f"No office_calendar_events_YYYY-MM-DD_HH-MM-SS.json snapshots found in: {path}"
-        )
-    return max(candidates, key=lambda item: item[0])[1]
+    return candidates
 
 
 def _nested(event: dict[str, Any], *keys: str) -> Any:

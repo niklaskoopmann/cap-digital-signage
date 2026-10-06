@@ -177,11 +177,13 @@ def _run_scenario(
     managed_tag = f"system-test-calendar-{mode}-{token}"
     legacy_layout_name = f"SYSTEM TEST LEGACY {mode} {token}"
     media_dir = root / f"media-{mode}"
+    image_dir = root / f"calendar-images-{mode}"
     snapshot_dir = root / f"snapshot-{mode}"
     isolated_scripts = root / f"scripts-{mode}"
     template_dir = isolated_scripts / "templates" / "calendar"
     snapshot_dir.mkdir(parents=True)
     media_dir.mkdir(parents=True)
+    image_dir.mkdir(parents=True)
     isolated_scripts.mkdir(parents=True)
     shutil.copy2(SCRIPTS_DIR / "sync_xibo.py", isolated_scripts / "sync_xibo.py")
     shutil.copytree(SCRIPTS_DIR / "xibo_sync", isolated_scripts / "xibo_sync")
@@ -210,7 +212,8 @@ def _run_scenario(
     scenario_env = dict(selected_env)
     scenario_env.update(
         {
-            "LOCAL_MEDIA_DIR": str(media_dir),
+            "SHAREPOINT_MEDIA_DIR": str(media_dir),
+            "CALENDAR_IMAGE_DIR": str(image_dir),
             "CALENDAR_JSON_PATH": str(snapshot_dir),
             "CALENDAR_ENABLE_HTML": "true",
             "CALENDAR_HTML_VIEWS": view,
@@ -254,7 +257,7 @@ def _run_scenario(
             f"Non-dry-run command failed ({completed.returncode}):\n{_redact(output[-6000:], selected_env)}"
         )
 
-    pngs = list(media_dir.glob(f"calendar_{view}_*.png"))
+    pngs = list(image_dir.glob(f"calendar_{view}_*.png"))
     assert len(pngs) == 1, f"Expected one generated PNG, found {pngs}"
     assert _png_dimensions(pngs[0]) == (1920, 1080)
     assert not list(root.rglob("*.htz")), "Calendar command produced an HTZ package"

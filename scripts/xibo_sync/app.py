@@ -183,7 +183,7 @@ def run_calendar_html_upload(
             ui_error(f"  - {view_type}: {path}")
         return 2
 
-    output_dir = cfg.local_media_dir
+    output_dir = cfg.calendar_image_dir
     if not output_dir.is_absolute():
         output_dir = (scripts_dir / output_dir).resolve()
 
@@ -237,19 +237,12 @@ def run_calendar_html_upload(
 
 
 def _publish_and_resolve_layout(xibo: XiboClient, layout_id: str, layout_name: str, media_id: str, dry_run: bool) -> str:
-    """Publish a layout and return its authoritative post-publish ID.
-
-    Xibo can replace a draft row during checkout, publication, or tagging. A
-    404 from the given layout ID is recoverable when either a draft-aware
-    lookup (``get_draft_layout_id``) or an exact name lookup resolves a
-    different, publishable ID; all other failures stop the upload workflow.
-    """
+    """Publish a layout and return its authoritative post-publish ID."""
     try:
         xibo.publish_layout(layout_id, dry_run=dry_run)
     except Exception as publish_error:
         if dry_run or "failed (404)" not in str(publish_error):
             raise
-
         candidate_ids = []
         draft_id = xibo.get_draft_layout_id(layout_id)
         if draft_id and draft_id != layout_id:
@@ -258,49 +251,29 @@ def _publish_and_resolve_layout(xibo: XiboClient, layout_id: str, layout_name: s
         name_id = str(resolved.get("layoutId") or resolved.get("id") or "") if isinstance(resolved, dict) else ""
         if name_id and name_id != layout_id and name_id not in candidate_ids:
             candidate_ids.append(name_id)
-
         for candidate_id in candidate_ids:
             try:
                 xibo.publish_layout(candidate_id, dry_run=False)
             except Exception:
                 continue
-            logging.info(
-                "Recovered publish for mediaId=%s with resolved layoutId=%s (was %s)",
-                media_id,
-                candidate_id,
-                layout_id,
-            )
             layout_id = candidate_id
             break
         else:
-            # No candidate accepted a fresh publish. This 404 is also the expected
-            # response when the layout is already published with nothing left to
-            # publish (Xibo consumes the draft row on the first publish), so
-            # confirm that state before treating it as a genuine failure.
             current = xibo.get_layout_by_id(layout_id)
-            if (
+            if not (
                 isinstance(current, dict)
                 and str(current.get("publishedStatusId")) == "1"
                 and not xibo.get_draft_layout_id(layout_id)
             ):
-                logging.info(
-                    "Publish 404 for mediaId=%s layoutId=%s but layout is already published with no draft; treating as success",
-                    media_id,
-                    layout_id,
-                )
-            else:
                 raise publish_error
-
     if dry_run:
         return layout_id
-
     current = xibo.get_layout_by_name(layout_name)
     if not isinstance(current, dict):
         raise RuntimeError(f"Published layout {layout_name!r} could not be resolved for mediaId={media_id}")
     current_id = str(current.get("layoutId") or current.get("id") or "")
     if not current_id:
         raise RuntimeError(f"Published layout {layout_name!r} has no layoutId for mediaId={media_id}")
-    logging.info("Resolved published layout for mediaId=%s: %s -> %s", media_id, layout_id, current_id)
     return current_id
 
 
@@ -312,7 +285,7 @@ def _upload_media_with_optional_layout(
     tags: list[str],
     extra_layout_tags: list[str] | None = None,
 ):
-    """Upload one media file and run the configured full-screen layout lifecycle."""
+    """Upload one media file and run its configured full-screen layout lifecycle."""
     created = xibo.upload_media(
         file_path=file_path,
         name=file_path.name,
@@ -321,236 +294,89 @@ def _upload_media_with_optional_layout(
         preferred_field=cfg.xibo_upload_field,
         dry_run=cfg.dry_run,
     )
-
     if not cfg.create_layout_per_upload or not created:
         return created
-
-    media_id = None
-    if isinstance(created, dict):
-        media_id = str(created.get("mediaId") or created.get("id") or "")
-        if not media_id and created.get("files"):
-            try:
-                media_id = str(created.get("files")[0].get("mediaId"))
-            except Exception:
-                media_id = None
-
+    media_id = str(created.get("mediaId") or created.get("id") or "") if isinstance(created, dict) else ""
+    if not media_id and isinstance(created, dict) and created.get("files"):
+        media_id = str(created["files"][0].get("mediaId") or "")
     if not media_id:
         return created
-
     layout = xibo.create_fullscreen_layout(created, dry_run=cfg.dry_run)
-    layout_id = None
-    if isinstance(layout, dict):
-        layout_id = str(layout.get("layoutId") or layout.get("id") or "")
-
+    layout_id = str(layout.get("layoutId") or layout.get("id") or "") if isinstance(layout, dict) else ""
     if not layout_id:
         return created
-
     layout_name = (layout.get("layout") or layout.get("name")) if isinstance(layout, dict) else None
     if not layout_name:
         raise RuntimeError(f"Created layout for mediaId={media_id} has no name for publish recovery")
-
     layout_id = _publish_and_resolve_layout(xibo, layout_id, layout_name, media_id, cfg.dry_run)
-
     ownership_tag = media_layout_ownership_tag(media_id)
-    logging.info(
-        "Managed media layout: mediaId=%s layoutId=%s ownershipTag=%s",
-        media_id,
-        layout_id,
-        ownership_tag,
-    )
-    layout_tags = [cfg.managed_tag, ownership_tag]
-    if extra_layout_tags:
-        layout_tags.extend(extra_layout_tags)
+    layout_tags = [cfg.managed_tag, ownership_tag, *(extra_layout_tags or [])]
     xibo.tag_layout(layout_id, layout_tags, dry_run=cfg.dry_run)
-
     layout_id = _publish_and_resolve_layout(xibo, layout_id, layout_name, media_id, cfg.dry_run)
-
     if cfg.assign_layout_on_change and cfg.display_group_id:
         xibo.assign_layouts_to_displaygroup(cfg.display_group_id, [layout_id], dry_run=cfg.dry_run)
-
     if cfg.immediate_show_on_change and cfg.display_group_id:
         xibo.change_layout_on_displaygroup(
-            cfg.display_group_id,
-            layout_id,
-            download_required=1,
-            dry_run=cfg.dry_run,
+            cfg.display_group_id, layout_id, download_required=1, dry_run=cfg.dry_run
         )
-
     return created
 
 
-def main() -> int:
-    """Run the sync CLI, including config prompts, diffing, and actions.
-
-    Returns:
-        Process exit code. ``0`` indicates success and ``2`
-        ` indicates failure.
-    """
-    scripts_dir = Path(__file__).resolve().parent.parent
-    env_path = scripts_dir / ".env"
-
-    parser = argparse.ArgumentParser(description="Sync local media to Xibo CMS")
-    parser.add_argument("--config", action="store_true", help="Run configuration wizard and exit")
-    parser.add_argument("--yes", "-y", action="store_true", help="Non-interactive: accept defaults and skip prompts")
-    parser.add_argument("--dry-run", action="store_true", help="Preview actions without uploading/deleting")
-    parser.add_argument("--upload-calendar", action="store_true", help="Replace the calendar DataSet from the latest snapshot")
-    parser.add_argument("--upload-calendar-html", action="store_true", help="Render calendar HTML views to 1920x1080 PNGs and upload as media")
-    parser.add_argument("--delete", dest="delete", action="store_true", help="Delete remote-only media without prompt")
-    parser.add_argument("--no-delete", dest="delete", action="store_false", help="Do not delete remote-only media")
-    parser.set_defaults(delete=None)
-    args = parser.parse_args()
-
-    ui_header("Xibo Media Sync", "Sync local media to Xibo CMS (assumes you are already on the hotspot)")
-
-    env_data = read_env_file(env_path)
-    if env_data:
-        ui_settings_table(env_data)
-    else:
-        ui_warn("No .env found yet. You should run the configuration wizard now.")
-
-    console.print()
-    if args.config:
-        config_wizard(env_path)
-        return 0
-
-    override = False if args.yes else Confirm.ask(
-        "[bold]Do you want to override/edit configuration values now?[/bold]",
-        default=(not env_data),
-    )
-    if override:
-        config_wizard(env_path)
-        env_data = read_env_file(env_path)
-
-    load_dotenv(env_path)
-    cfg = load_config()
-
-    setup_logging(cfg.log_level, cfg.log_file, scripts_dir)
-
-    if not cfg.local_media_dir.is_absolute():
-        cfg.local_media_dir = (scripts_dir / cfg.local_media_dir).resolve()
-
-    if args.upload_calendar:
-        if args.dry_run:
-            cfg.dry_run = True
-        try:
-            return run_calendar_upload(cfg, scripts_dir)
-        except Exception as e:
-            logging.exception("Calendar upload failed: %s", e)
-            ui_error(f"Calendar upload failed: {e}")
-            return 2
-
-    if args.upload_calendar_html:
-        if args.dry_run:
-            cfg.dry_run = True
-        try:
-            return run_calendar_html_upload(cfg, scripts_dir)
-        except Exception as e:
-            logging.exception("Calendar HTML upload failed: %s", e)
-            ui_error(f"Calendar HTML upload failed: {e}")
-            return 2
-
-    console.print()
-    ui_header("Run Options", "Choose whether remote-only media should be deleted this run")
-    if args.delete is not None:
-        run_delete = bool(args.delete)
-    elif args.yes:
-        run_delete = cfg.delete_remote_not_local
-    else:
-        run_delete = Confirm.ask(
-            "Delete media from Xibo that is NOT present locally?",
-            default=cfg.delete_remote_not_local,
-        )
-
-    env_data2 = read_env_file(env_path)
-    env_data2["DELETE_REMOTE_NOT_LOCAL"] = "true" if run_delete else "false"
-    write_env_file(env_path, env_data2)
-    ui_ok("Saved deletion choice to .env (DELETE_REMOTE_NOT_LOCAL)")
-
-    if args.dry_run:
-        cfg.dry_run = True
-
-    ui_info(f"Local media dir: {cfg.local_media_dir}")
-    ui_info(f"Compare mode: {cfg.compare_mode} | Auth mode: {cfg.auth_mode} | Dry run: {cfg.dry_run}")
-
+def run_media_sync(cfg, run_delete: bool, *, xibo: XiboClient | None = None) -> int:
+    """Run the media comparison, upload, and cleanup workflow."""
     changes_made = False
-
     try:
-        ui_info("Step 1: Checking Xibo API availability ...")
-        xibo = XiboClient(cfg.cms_base_url, cfg.cms_verify_tls, cfg.cms_timeout)
-
-        if cfg.auth_mode == "oauth":
-            assert cfg.cms_client_id and cfg.cms_client_secret
-            xibo.authenticate_oauth(cfg.cms_client_id, cfg.cms_client_secret)
-
-        xibo.health_check()
-        ui_ok("Xibo API reachable")
-
+        if xibo is None:
+            ui_info("Step 1: Checking Xibo API availability ...")
+            xibo = XiboClient(cfg.cms_base_url, cfg.cms_verify_tls, cfg.cms_timeout)
+            if cfg.auth_mode == "oauth":
+                assert cfg.cms_client_id and cfg.cms_client_secret
+                xibo.authenticate_oauth(cfg.cms_client_id, cfg.cms_client_secret)
+            xibo.health_check()
+            ui_ok("Xibo API reachable")
         ui_info("Step 2: Scanning local media files ...")
-        local_files = list_local_media(cfg.local_media_dir, cfg.media_extensions)
+        local_files = list_local_media(cfg.sharepoint_media_dir, cfg.media_extensions)
         ui_ok(f"Found {len(local_files)} local media file(s)")
         local_index = build_local_index(local_files, cfg.compare_mode, cfg.hash_tag_prefix)
-
         ui_info("Step 3: Fetching Xibo CMS library ...")
         remote_items = xibo.list_library(cfg.managed_tag, cfg.managed_folder_id)
         remote_index = build_remote_index(remote_items, cfg.compare_mode, cfg.hash_tag_prefix)
         ui_ok(f"Fetched {len(remote_items)} remote library item(s) (filtered)")
-
         ui_info("Step 4: Calculating diff ...")
-        to_upload = sorted(set(local_index.keys()) - set(remote_index.keys()))
-        to_delete = sorted(set(remote_index.keys()) - set(local_index.keys()))
+        to_upload = sorted(set(local_index) - set(remote_index))
+        to_delete = sorted(set(remote_index) - set(local_index))
         ui_ok(f"To upload: {len(to_upload)} | Remote-only: {len(to_delete)}")
-
         if cfg.upload_new_local and to_upload:
             ui_info("Step 5: Uploading new media ...")
             for key in to_upload:
-                f = local_index[key]
                 tags = [cfg.managed_tag]
                 if cfg.compare_mode == "hash":
                     tags.append(key)
-
-                _upload_media_with_optional_layout(
-                    xibo,
-                    cfg,
-                    file_path=f,
-                    tags=tags,
-                )
+                _upload_media_with_optional_layout(xibo, cfg, file_path=local_index[key], tags=tags)
                 changes_made = True
-
             ui_ok("Uploads complete")
         else:
             ui_info("Step 5: Upload skipped (nothing to upload or UPLOAD_NEW_LOCAL=false)")
-
         if run_delete and to_delete:
             ui_info("Step 6: Deleting remote-only media ...")
-
             if cfg.only_delete_managed_tag:
                 ui_warn(f"Safety ON: Only deleting items with MANAGED_TAG='{cfg.managed_tag}'")
-
             for key in to_delete:
-                it = remote_index[key]
-                media_id = str(it.get("mediaId") or it.get("id") or "")
+                item = remote_index[key]
+                media_id = str(item.get("mediaId") or item.get("id") or "")
                 if not media_id:
-                    logging.warning("Skipping delete (no mediaId): %s", it)
+                    logging.warning("Skipping delete (no mediaId): %s", item)
                     continue
-
                 if cfg.only_delete_managed_tag:
-                    tags = it.get("tags", "")
-                    tags_str = ""
-                    if isinstance(tags, str):
-                        tags_str = tags
-                    elif isinstance(tags, list):
-                        tags_str = ",".join([t.get("tag", "") if isinstance(t, dict) else str(t) for t in tags])
-
-                    if tags_str and cfg.managed_tag not in tags_str:
+                    tags = item.get("tags", "")
+                    if isinstance(tags, list):
+                        tags = ",".join(tag.get("tag", "") if isinstance(tag, dict) else str(tag) for tag in tags)
+                    tags = str(tags)
+                    if tags and cfg.managed_tag not in tags:
                         ui_warn(f"Skipping delete mediaId={media_id} (missing managed tag)")
                         continue
-
-                    if not tags_str:
-                        logging.warning(
-                            "Deleting mediaId=%s without embedded tags because the library query was already restricted by MANAGED_TAG.",
-                            media_id,
-                        )
-
+                    if not tags:
+                        logging.warning("Deleting mediaId=%s without embedded tags because the library query was already restricted by MANAGED_TAG.", media_id)
                 if cfg.delete_layout_with_media:
                     ownership_tag = media_layout_ownership_tag(media_id)
                     layouts = xibo.list_layouts_by_ownership_tag(ownership_tag)
@@ -563,25 +389,133 @@ def main() -> int:
                             dry_run=cfg.dry_run,
                         )
                         changes_made = True
-
                 xibo.delete_media(media_id, dry_run=cfg.dry_run)
                 changes_made = True
-
             ui_ok("Deletion complete")
         else:
             ui_info("Step 6: Delete skipped (disabled or none to delete)")
-
         if cfg.trigger_collectnow_on_changes and changes_made and cfg.display_group_id:
             ui_info("Step 7: Triggering player refresh (Collect Now) ...")
             xibo.collect_now(cfg.display_group_id, dry_run=cfg.dry_run)
             ui_ok("Collect Now triggered")
         else:
             ui_info("Step 7: Refresh skipped (no changes, DISPLAY_GROUP_ID empty, or disabled)")
-
         ui_ok("SUCCESS: Sync completed")
         return 0
-
-    except Exception as e:
-        logging.exception("FAILED: %s", e)
-        ui_error(f"Sync failed: {e}")
+    except Exception as exc:
+        logging.exception("FAILED: %s", exc)
+        ui_error(f"Sync failed: {exc}")
         return 2
+
+
+def main() -> int:
+    """Run the configured download, hotspot-switch, and Xibo upload phases."""
+    scripts_dir = Path(__file__).resolve().parent.parent
+    env_path = scripts_dir / ".env"
+    parser = argparse.ArgumentParser(description="Download SharePoint media and sync it to Xibo CMS", allow_abbrev=False)
+    parser.add_argument("--config", action="store_true", help="Run configuration wizard and exit")
+    parser.add_argument("--yes", "-y", action="store_true", help="Non-interactive: accept defaults and skip prompts")
+    parser.add_argument("--dry-run", action="store_true", help="Preview actions without writing, uploading, or deleting")
+    parser.add_argument("--mode", choices=("full", "download", "upload"), help="Select download/upload phases")
+    parser.add_argument("--upload-calendar-html", action="store_true", help="Render calendar HTML views to 1920x1080 PNGs and upload as media")
+    parser.add_argument("--delete", dest="delete", action="store_true", help="Delete remote-only media without prompt")
+    parser.add_argument("--no-delete", dest="delete", action="store_false", help="Do not delete remote-only media")
+    parser.set_defaults(delete=None)
+    args = parser.parse_args()
+    ui_header("Xibo Media Sync", "Download from Microsoft Graph, switch to the Xibo hotspot, then upload")
+    env_data = read_env_file(env_path)
+    if env_data:
+        ui_settings_table(env_data)
+    else:
+        ui_warn("No .env found yet. You should run the configuration wizard now.")
+    console.print()
+    if args.config:
+        config_wizard(env_path)
+        return 0
+    override = False if args.yes else Confirm.ask(
+        "[bold]Do you want to override/edit configuration values now?[/bold]",
+        default=(not env_data),
+    )
+    if override:
+        config_wizard(env_path)
+        env_data = read_env_file(env_path)
+    load_dotenv(env_path)
+    cfg = load_config(sync_mode="upload" if args.upload_calendar_html else args.mode)
+    if args.dry_run:
+        cfg.dry_run = True
+    setup_logging(cfg.log_level, cfg.log_file, scripts_dir)
+    for attribute in ("sharepoint_media_dir", "calendar_image_dir"):
+        path = getattr(cfg, attribute)
+        if not path.is_absolute():
+            setattr(cfg, attribute, (scripts_dir / path).resolve())
+    if args.upload_calendar_html:
+        try:
+            return run_calendar_html_upload(cfg, scripts_dir)
+        except Exception as exc:
+            logging.exception("Calendar HTML upload failed: %s", exc)
+            ui_error(f"Calendar HTML upload failed: {exc}")
+            return 2
+    phase_two = cfg.sync_mode in ("full", "upload")
+    run_delete = cfg.delete_remote_not_local
+    if phase_two:
+        console.print()
+        ui_header("Run Options", "Choose whether remote-only media should be deleted this run")
+        if args.delete is not None:
+            run_delete = bool(args.delete)
+        elif not args.yes:
+            run_delete = Confirm.ask("Delete media from Xibo that is NOT present locally?", default=cfg.delete_remote_not_local)
+        env_data = read_env_file(env_path)
+        env_data["DELETE_REMOTE_NOT_LOCAL"] = "true" if run_delete else "false"
+        write_env_file(env_path, env_data)
+        ui_ok("Saved deletion choice to .env (DELETE_REMOTE_NOT_LOCAL)")
+    ui_info(f"SharePoint media dir: {cfg.sharepoint_media_dir}")
+    ui_info(f"Mode: {cfg.sync_mode} | Compare: {cfg.compare_mode} | Dry run: {cfg.dry_run}")
+    if cfg.sync_mode in ("full", "download"):
+        from .graph_download import run_download_phase
+
+        ui_header("Phase 1: Download")
+        try:
+            download_result = run_download_phase(cfg, scripts_dir)
+        except Exception as exc:
+            ui_error(f"Phase 1 failed: {exc}")
+            return 2
+        media = download_result.media
+        ui_info(
+            f"Calendar snapshot: {download_result.calendar_path or 'not written'} | "
+            f"Media downloaded: {media.downloaded}, skipped: {media.skipped}, "
+            f"deleted: {media.deleted}, ignored: {media.ignored}"
+        )
+        if download_result.errors:
+            for error in download_result.errors:
+                ui_error(error)
+            if cfg.sync_mode == "download" or args.yes:
+                return 2
+            if not Confirm.ask("Continue with existing local data?", default=False):
+                return 2
+        if cfg.sync_mode == "download":
+            return 0
+    xibo = None
+    if cfg.sync_mode == "full":
+        while True:
+            ui_header("Switch to Xibo Hotspot", "Connect this PC to the Xibo PC hotspot, then confirm to continue")
+            if not Confirm.ask("Connected to the Xibo hotspot?", default=False):
+                return 2
+            try:
+                xibo = XiboClient(cfg.cms_base_url, cfg.cms_verify_tls, cfg.cms_timeout)
+                if cfg.auth_mode == "oauth":
+                    assert cfg.cms_client_id and cfg.cms_client_secret
+                    xibo.authenticate_oauth(cfg.cms_client_id, cfg.cms_client_secret)
+                xibo.health_check()
+                ui_ok("Xibo API reachable")
+                break
+            except Exception as exc:
+                ui_error(f"Xibo API is not reachable yet: {exc}")
+    ui_header("Phase 2: Upload to Xibo")
+    media_status = run_media_sync(cfg, run_delete, xibo=xibo)
+    try:
+        calendar_status = run_calendar_upload(cfg, scripts_dir)
+    except Exception as exc:
+        logging.exception("Calendar upload failed: %s", exc)
+        ui_error(f"Calendar upload failed: {exc}")
+        calendar_status = 2
+    return 0 if media_status == 0 and calendar_status == 0 else 2

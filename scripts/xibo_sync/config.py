@@ -19,7 +19,19 @@ class Config:
     cms_client_id: Optional[str]
     cms_client_secret: Optional[str]
 
-    local_media_dir: Path
+    sharepoint_media_dir: Path
+    calendar_image_dir: Path
+    sync_mode: str
+    graph_tenant_id: Optional[str]
+    graph_client_id: Optional[str]
+    graph_client_secret: Optional[str]
+    graph_sharepoint_site_id: Optional[str]
+    graph_sharepoint_folder: str
+    graph_calendar_user_id: Optional[str]
+    graph_calendar_days_ahead: int
+    graph_calendar_keep_snapshots: int
+    graph_timeout_seconds: int
+    graph_base_url: str
     calendar_json_path: Path
     calendar_dataset_name: str
     calendar_dataset_code: Optional[str]
@@ -88,7 +100,7 @@ def getenv_int(name: str, default: int) -> int:
     return int(os.getenv(name, str(default)).strip())
 
 
-def load_config() -> Config:
+def load_config(sync_mode: str | None = None) -> Config:
     """Load configuration from environment variables.
 
     This expects ``load_dotenv`` to have already populated the process environment.
@@ -112,9 +124,41 @@ def load_config() -> Config:
     if auth_mode == "oauth" and (not cms_client_id or not cms_client_secret):
         raise ValueError("For AUTH_MODE=oauth you must set CMS_CLIENT_ID and CMS_CLIENT_SECRET in .env")
 
-    local_dir = os.getenv("LOCAL_MEDIA_DIR", "").strip()
-    if not local_dir:
-        raise ValueError("LOCAL_MEDIA_DIR must be set")
+    sharepoint_dir = os.getenv("SHAREPOINT_MEDIA_DIR", "").strip()
+    if not sharepoint_dir:
+        raise ValueError("SHAREPOINT_MEDIA_DIR must be set")
+
+    configured_sync_mode = (sync_mode or os.getenv("SYNC_MODE", "full")).strip().lower()
+    if configured_sync_mode not in ("full", "download", "upload"):
+        raise ValueError("SYNC_MODE must be 'full', 'download', or 'upload'")
+
+    graph_tenant_id = os.getenv("GRAPH_TENANT_ID", "").strip() or None
+    graph_client_id = os.getenv("GRAPH_CLIENT_ID", "").strip() or None
+    graph_client_secret = os.getenv("GRAPH_CLIENT_SECRET", "").strip() or None
+    graph_sharepoint_site_id = os.getenv("GRAPH_SHAREPOINT_SITE_ID", "").strip() or None
+    graph_calendar_user_id = os.getenv("GRAPH_CALENDAR_USER_ID", "").strip() or None
+    required_graph_settings = {
+        "GRAPH_TENANT_ID": graph_tenant_id,
+        "GRAPH_CLIENT_ID": graph_client_id,
+        "GRAPH_CLIENT_SECRET": graph_client_secret,
+        "GRAPH_SHAREPOINT_SITE_ID": graph_sharepoint_site_id,
+        "GRAPH_CALENDAR_USER_ID": graph_calendar_user_id,
+    }
+    if configured_sync_mode in ("full", "download"):
+        missing_graph_settings = [key for key, value in required_graph_settings.items() if not value]
+        if missing_graph_settings:
+            raise ValueError(f"Required for SYNC_MODE={configured_sync_mode}: {', '.join(missing_graph_settings)}")
+
+    graph_calendar_days_ahead = getenv_int("GRAPH_CALENDAR_DAYS_AHEAD", 14)
+    graph_calendar_keep_snapshots = getenv_int("GRAPH_CALENDAR_KEEP_SNAPSHOTS", 10)
+    graph_timeout_seconds = getenv_int("GRAPH_TIMEOUT_SECONDS", 30)
+    for key, value in (
+        ("GRAPH_CALENDAR_DAYS_AHEAD", graph_calendar_days_ahead),
+        ("GRAPH_CALENDAR_KEEP_SNAPSHOTS", graph_calendar_keep_snapshots),
+        ("GRAPH_TIMEOUT_SECONDS", graph_timeout_seconds),
+    ):
+        if value < 1:
+            raise ValueError(f"{key} must be >= 1")
 
     exts = os.getenv("MEDIA_EXTENSIONS", ".jpg,.jpeg,.png,.gif,.mp4").strip()
     media_extensions = tuple(e.strip().lower() for e in exts.split(",") if e.strip())
@@ -137,7 +181,19 @@ def load_config() -> Config:
         cms_client_id=cms_client_id,
         cms_client_secret=cms_client_secret,
 
-        local_media_dir=Path(local_dir),
+        sharepoint_media_dir=Path(sharepoint_dir),
+        calendar_image_dir=Path(os.getenv("CALENDAR_IMAGE_DIR", "../calendar_images").strip()),
+        sync_mode=configured_sync_mode,
+        graph_tenant_id=graph_tenant_id,
+        graph_client_id=graph_client_id,
+        graph_client_secret=graph_client_secret,
+        graph_sharepoint_site_id=graph_sharepoint_site_id,
+        graph_sharepoint_folder=os.getenv("GRAPH_SHAREPOINT_FOLDER", "test_images").strip(),
+        graph_calendar_user_id=graph_calendar_user_id,
+        graph_calendar_days_ahead=graph_calendar_days_ahead,
+        graph_calendar_keep_snapshots=graph_calendar_keep_snapshots,
+        graph_timeout_seconds=graph_timeout_seconds,
+        graph_base_url=os.getenv("GRAPH_BASE_URL", "https://graph.microsoft.com/v1.0").strip().rstrip("/"),
         calendar_json_path=Path(os.getenv(
             "CALENDAR_JSON_PATH",
             r"C:\Users\rogrun\OneDrive - Capgemini\Xibo_Sync\office_calendar",

@@ -44,8 +44,8 @@ has approved the implementation against `docs/PLAN.md`.
   `CMS_CLIENT_SECRET`, and `AUTH_MODE` only from the selected test `.env` file. Never echo a
   secret into chat output or a report.
 - The test harness must launch `sync_xibo.py` in a subprocess with an environment built from the
-  selected test `.env` file plus scenario-specific overrides (`MANAGED_TAG`, `LOCAL_MEDIA_DIR`,
-  feature flags). Do not let the subprocess fall back to `scripts/.env`; use explicit environment
+  selected test `.env` file plus scenario-specific overrides (`MANAGED_TAG`, `SHAREPOINT_MEDIA_DIR`,
+  `CALENDAR_IMAGE_DIR`, feature flags). Do not let the subprocess fall back to `scripts/.env`; use explicit environment
   values or an isolated working copy when the script writes configuration.
 - Set `PYTHONIOENCODING=utf-8` and `PYTHONUTF8=1` for subprocess runs; the rich UI crashes with
   `UnicodeEncodeError` under the default cp1252 code page when output is piped.

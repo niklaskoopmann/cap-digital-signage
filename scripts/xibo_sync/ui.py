@@ -75,7 +75,12 @@ def ui_settings_table(env_data: Dict[str, str]) -> None:
     keys = [
         "CMS_BASE_URL", "CMS_VERIFY_TLS", "CMS_TIMEOUT_SECONDS",
         "AUTH_MODE", "CMS_CLIENT_ID", "CMS_CLIENT_SECRET",
-        "LOCAL_MEDIA_DIR", "CALENDAR_JSON_PATH", "CALENDAR_DATASET_NAME",
+        "SHAREPOINT_MEDIA_DIR", "CALENDAR_IMAGE_DIR", "SYNC_MODE",
+        "GRAPH_TENANT_ID", "GRAPH_CLIENT_ID", "GRAPH_CLIENT_SECRET",
+        "GRAPH_SHAREPOINT_SITE_ID", "GRAPH_SHAREPOINT_FOLDER", "GRAPH_CALENDAR_USER_ID",
+        "GRAPH_CALENDAR_DAYS_AHEAD", "GRAPH_CALENDAR_KEEP_SNAPSHOTS",
+        "GRAPH_TIMEOUT_SECONDS", "GRAPH_BASE_URL",
+        "CALENDAR_JSON_PATH", "CALENDAR_DATASET_NAME",
         "CALENDAR_DATASET_CODE", "CALENDAR_UPLOAD_CANCELLED_EVENTS",
         "MEDIA_EXTENSIONS", "COMPARE_MODE",
         "MANAGED_TAG", "ONLY_DELETE_MANAGED_TAG", "MANAGED_FOLDER_ID",
@@ -96,7 +101,7 @@ def ui_settings_table(env_data: Dict[str, str]) -> None:
 
     for k in keys:
         v = env_data.get(k, "")
-        if k == "CMS_CLIENT_SECRET":
+        if k in ("CMS_CLIENT_SECRET", "GRAPH_CLIENT_SECRET"):
             v = "******" if v else ""
         table.add_row(k, v)
 

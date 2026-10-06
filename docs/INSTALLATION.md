@@ -162,21 +162,37 @@ CMS_TIMEOUT_SECONDS=30
 AUTH_MODE=oauth
 CMS_CLIENT_ID=<xibo-sync-client-id>
 CMS_CLIENT_SECRET=<xibo-sync-client-secret>
-LOCAL_MEDIA_DIR=../media
+SYNC_MODE=full
+SHAREPOINT_MEDIA_DIR=../media
+CALENDAR_IMAGE_DIR=../calendar_images
+GRAPH_TENANT_ID=<entra-tenant-id>
+GRAPH_CLIENT_ID=<entra-application-id>
+GRAPH_CLIENT_SECRET=<entra-client-secret>
+GRAPH_SHAREPOINT_SITE_ID=<sharepoint-site-id>
+GRAPH_SHAREPOINT_FOLDER=test_images
+GRAPH_CALENDAR_USER_ID=<calendar-mailbox-user-id>
+GRAPH_CALENDAR_DAYS_AHEAD=14
+GRAPH_CALENDAR_KEEP_SNAPSHOTS=10
+GRAPH_TIMEOUT_SECONDS=30
+GRAPH_BASE_URL=https://graph.microsoft.com/v1.0
 MANAGED_TAG=xibo-sync
 ONLY_DELETE_MANAGED_TAG=true
 ```
 
+Grant the Entra ID application `Calendars.Read` and `Sites.Read.All` application permissions and
+grant admin consent. Existing `.env` files must configure `SHAREPOINT_MEDIA_DIR`; there is no
+legacy-key fallback.
+
 Run a dry-run check:
 
 ```bash
-python sync_xibo.py --dry-run --yes
+python sync_xibo.py --mode upload --dry-run --yes
 ```
 
 For calendar DataSet uploads, configure `CALENDAR_JSON_PATH` and run:
 
 ```bash
-python sync_xibo.py --upload-calendar --dry-run --yes
+python sync_xibo.py --mode upload --dry-run --yes
 ```
 
 ## 7. Configure the Calendar Generation Service
@@ -295,13 +311,13 @@ Run a dry-run sync:
 ```bash
 cd /opt/cap-digital-signage/scripts
 . .venv/bin/activate
-python sync_xibo.py --dry-run --yes
+python sync_xibo.py --mode upload --dry-run --yes
 ```
 
 If calendar upload is configured, run:
 
 ```bash
-python sync_xibo.py --upload-calendar --dry-run --yes
+python sync_xibo.py --mode upload --dry-run --yes
 python sync_xibo.py --upload-calendar-html --dry-run --yes
 ```
 

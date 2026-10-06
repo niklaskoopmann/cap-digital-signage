@@ -8,6 +8,7 @@
   - [Repository Layout](#repository-layout)
   - [Runtime Configuration](#runtime-configuration)
     - [Common keys](#common-keys)
+    - [Microsoft Graph download](#microsoft-graph-download)
     - [Layout / Display workflow (optional)](#layout--display-workflow-optional)
     - [Calendar upload](#calendar-upload)
     - [Calendar HTML images](#calendar-html-images)
@@ -44,11 +45,12 @@ This repository contains the local tooling and deployment assets used to keep a 
 
 The active runtime pieces are:
 
-- `scripts/sync_xibo.py`: operator-run launcher for the modular `xibo_sync` package. It uploads
-  local media, can replace the Xibo calendar DataSet from a Microsoft Graph-style snapshot, and can
-  render/upload calendar PNGs on demand.
+- `scripts/sync_xibo.py`: operator-run launcher for the modular `xibo_sync` package. It downloads
+  calendar and SharePoint media through Microsoft Graph, pauses for the manual hotspot switch, then
+  uploads media and replaces the Xibo calendar DataSet. Calendar PNGs remain a standalone command.
 - `scripts/xibo_sync/`: shared implementation for configuration, terminal UI, Xibo API calls, media
-  comparison, calendar data conversion, PNG generation, layout lifecycle, and cleanup safety.
+  comparison, Graph downloads, calendar data conversion, PNG generation, layout lifecycle, and
+  cleanup safety.
 - `services/calendar_render_service/`: host-local Docker service that reads the Xibo calendar
   DataSet, renders the configured calendar views as PNG images, uploads them through the shared
   media/layout workflow, and repeats daily.
@@ -69,8 +71,7 @@ authorization, and first Portainer launch.
 
 ## Repository Layout
 
-- `media/`: local media source directory used by the sync script. Generated calendar PNGs are also
-  written here when `--upload-calendar-html` is run manually and `LOCAL_MEDIA_DIR` points here.
+- `media/`: default downloaded SharePoint media directory used by the sync script.
 - `docs/`: maintainer and operator documentation.
   - `TECHNICAL.md`: implementation and maintenance reference.
   - `USER_GUIDE.md`: operator-focused usage guide.
@@ -82,6 +83,7 @@ authorization, and first Portainer launch.
   - `xibo_sync/`: modular sync implementation.
     - `app.py`: command-line orchestration and shared upload/layout lifecycle.
     - `client.py`: Xibo API client and CMS-specific layout/media helpers.
+    - `graph_client.py`, `graph_download.py`: Microsoft Graph transport and phase-one downloads.
     - `calendar_data.py`: calendar JSON/DataSet conversion and retention filtering.
     - `calendar_html.py`: calendar event filtering and PNG view generation.
     - `html_packaging.py`: generic Jinja rendering and Playwright screenshot capture helpers.
@@ -126,8 +128,10 @@ Both scripts load environment variables from `scripts/.env`.
 - `CMS_TIMEOUT_SECONDS`: Timeout for HTTP requests.
 - `AUTH_MODE`: `none` or `oauth`.
 - `CMS_CLIENT_ID` / `CMS_CLIENT_SECRET`: OAuth client credentials from Xibo.
-- `LOCAL_MEDIA_DIR`: Folder containing local media files, usually `../media`.
-- `CALENDAR_JSON_PATH`: Calendar snapshot directory or JSON file. Relative paths resolve from `scripts/`.
+- `SHAREPOINT_MEDIA_DIR`: Downloaded SharePoint media directory, usually `../media`.
+- `CALENDAR_IMAGE_DIR`: Output for `--upload-calendar-html`, default `../calendar_images`.
+- `SYNC_MODE`: `full` (default), `download`, or `upload`; `--mode` overrides this value.
+- `CALENDAR_JSON_PATH`: Snapshot directory for `full`/`download`; `upload` also accepts one JSON file.
 - `CALENDAR_DATASET_NAME`: Target Xibo DataSet name, default `office_calendar_events`.
 - `CALENDAR_DATASET_CODE`: Optional Xibo DataSet code used during lookup.
 - `CALENDAR_UPLOAD_CANCELLED_EVENTS`: Include cancelled events in the replacement snapshot when `true`.
@@ -144,6 +148,29 @@ Both scripts load environment variables from `scripts/.env`.
 - `DRY_RUN`: If `true`, suppresses changes.
 - `DISPLAY_GROUP_ID`: Optional display group to trigger Collect Now.
 - `TRIGGER_COLLECTNOW_ON_CHANGES`: Whether to trigger Collect Now after modifications.
+
+### Microsoft Graph download
+
+`full` and `download` require `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`,
+`GRAPH_SHAREPOINT_SITE_ID`, and `GRAPH_CALENDAR_USER_ID`. The Entra ID application needs
+`Calendars.Read` and `Sites.Read.All` application permissions with admin consent. Optional settings
+are `GRAPH_SHAREPOINT_FOLDER` (`test_images`), `GRAPH_CALENDAR_DAYS_AHEAD` (`14`),
+`GRAPH_CALENDAR_KEEP_SNAPSHOTS` (`10`), `GRAPH_TIMEOUT_SECONDS` (`30`), and `GRAPH_BASE_URL`
+(`https://graph.microsoft.com/v1.0`). MSAL obtains client-credentials tokens; Graph HTTP requests
+use the shared timeout and follow `@odata.nextLink` pages.
+
+The calendar downloader writes Graph `calendarView` results as the existing timestamped snapshot
+shape. SharePoint downloads are restricted to top-level items with supported media extensions.
+`.sharepoint_manifest.json` tracks downloaded filenames and metadata, allowing unchanged files to be
+skipped and stale owned files to be removed without overwriting or deleting untracked local files.
+Downloads use `.part` files and atomic replacement. Dry-run performs Graph reads but writes or
+deletes no local files. Download errors report the HTTP status or exception type but never the
+pre-authenticated download URL.
+
+`sync_xibo.py` calls `truststore.inject_into_ssl()` at startup so TLS verification uses the
+operating-system certificate store. This is required behind corporate TLS inspection, where file
+content redirects to `*.sharepoint.com` are re-signed by a company root CA that `certifi` lacks
+(symptom: `SSLError` / `self-signed certificate in certificate chain`).
 
 ### Layout / Display workflow (optional)
 
@@ -193,7 +220,7 @@ Notes:
 
 ### Calendar upload
 
-`--upload-calendar` selects the newest file matching
+`--mode upload` selects the newest file matching
 `office_calendar_events_YYYY-MM-DD_HH-MM-SS.json` when `CALENDAR_JSON_PATH` is a directory.
 Selection uses the timestamp in the filename. The JSON must contain a Microsoft Graph-style
 top-level `value` array.
@@ -217,8 +244,9 @@ converts the curated headings to the flat event shape consumed by the existing r
 
 ### Calendar HTML images
 
-`--upload-calendar-html` renders the editable Jinja template to one 1920x1080 PNG per configured
-view and uploads each PNG through the normal verified media path. When
+`--upload-calendar-html` is a standalone command that does not require Graph credentials or enter
+the two-phase/hotspot flow. It renders the editable Jinja template to one 1920x1080 PNG per
+configured view under `CALENDAR_IMAGE_DIR` and uploads each PNG through the normal verified media path. When
 `CREATE_LAYOUT_PER_UPLOAD=true`, each uploaded image also follows the normal full-screen layout
 create, publish, ownership-tag, optional assignment, and optional immediate-show lifecycle.
 
@@ -308,7 +336,7 @@ Three views ship by default with the configs shown below. Their legacy layout na
      the full date range in the header and include each event's local date beside its time.
    - Render the template (`template.html` or a custom template_file) with that context using Jinja2.
    - Capture the rendered HTML with Playwright Chromium at a fixed 1920x1080 viewport.
-   - Write `calendar_<view>_<YYYY-MM-DD>.png` into the resolved `LOCAL_MEDIA_DIR`, using the
+  - Write `calendar_<view>_<YYYY-MM-DD>.png` into the resolved `CALENDAR_IMAGE_DIR`, using the
      local window start date.
 3. Upload each generated PNG through `XiboClient.upload_media()` with tags for `MANAGED_TAG`,
    `calendar-html`, `calendar-image`, `calendar-<view>`, and the start date.
@@ -350,7 +378,9 @@ stdout so they are visible in `docker logs`.
 
 The Docker image copies `xibo_sync`, the service package, and `templates/calendar` under `/app`.
 Its Playwright Python package and browser image are pinned to the same version so the renderer
-does not drift away from the bundled Chromium executable.
+does not drift away from the bundled Chromium executable. The image installs
+`scripts/requirements.txt`; rebuild the calendar render service image after adding runtime packages
+such as MSAL before deploying the updated scripts.
 Compose adds it to `xibo/xibo-docker-4.4.2/docker-compose.yml` with no published ports. Create
 `services/calendar_render_service/.env` from its `.env.example`; keep the credential file out of
 version control.
@@ -431,25 +461,26 @@ CMS. Reusable calendar layouts are excluded.
 
 #### Local cleanup
 
-Generated PNGs remain in `LOCAL_MEDIA_DIR` as normal local media. Xibo library cleanup is out of
+Generated PNGs remain in `CALENDAR_IMAGE_DIR`, separate from SharePoint downloads. Xibo library cleanup is out of
 scope for this phase; manage old library items via normal media-sync settings or the CMS UI.
 
 ## Sync Flow
 
 ### `sync_xibo.py`
 
-1. Load `.env` and show a settings summary.
-2. Optionally run the configuration wizard and persist changes back to `.env`.
-3. Build a local file index from `LOCAL_MEDIA_DIR`.
-4. Call the Xibo API to list library items.
-5. Build a remote index from library metadata.
-6. Compare local and remote keys.
-7. Upload missing local items if enabled.
-8. Delete remote-only items if the user requested deletion.
-9. Optionally trigger Collect Now.
+1. Load `.env`, show settings, and optionally run the configuration wizard.
+2. Resolve the delete decision at startup when the selected mode includes phase 2.
+3. In `full`/`download`, authenticate with Graph and download the calendar snapshot and SharePoint
+  media. Calendar and media failures are collected independently; `download` exits nonzero on any
+  error, while interactive `full` can continue with existing local data after confirmation.
+4. In `full`, prompt for the manual Xibo hotspot switch and repeat the confirmation/health check
+  until the authenticated Xibo API is reachable or the operator aborts.
+5. In `full`/`upload`, compare `SHAREPOINT_MEDIA_DIR` with the Xibo library, upload missing media,
+  apply the configured deletion policy, and then attempt the calendar DataSet replacement.
 
-Use `python .\sync_xibo.py --upload-calendar --dry-run --yes` to inspect the selected snapshot and
-row count without changing Xibo. Calendar upload does not enter the media deletion workflow.
+`--mode upload --dry-run --yes` previews phase 2 without Graph requests. `--mode download --dry-run
+--yes` performs Graph reads and reports planned local changes without writing snapshots, media, or
+the manifest. `--upload-calendar-html` remains a standalone PNG upload path.
 
 Always activate `scripts/.venv` before running Python or pip commands from this repository so installs do not modify a global interpreter.
 
