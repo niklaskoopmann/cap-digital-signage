@@ -1,6 +1,7 @@
 .venv
 .env
 .env.*
+.env
 !.env.example
 scripts/.env
 scripts/secrets.json
