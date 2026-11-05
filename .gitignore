@@ -4,6 +4,11 @@
 !.env.example
 scripts/.env
 scripts/secrets.json
+**/secrets.json
+**/sync-state.json
+**/.secrets.json.*.tmp
+**/.sync-state.json.*.tmp
+**/..env.*.tmp
 *.log
 __pycache__/*
 __pycache__/

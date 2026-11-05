@@ -1,8 +1,11 @@
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
+import json
+import os
 
 import pytest
+import yaml
 
 from calendar_render_service import service
 
@@ -74,6 +77,26 @@ class FakeXiboClient:
 
     def delete_media(self, media_id: str, dry_run: bool = False) -> None:
         self.calls.append(("delete_media", (media_id, dry_run)))
+
+
+def test_calendar_render_compose_mounts_existing_private_files_read_only() -> None:
+    compose_path = (
+        Path(__file__).resolve().parents[3]
+        / "xibo"
+        / "xibo-docker-4.4.2"
+        / "docker-compose.yml"
+    )
+    compose = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
+    service_config = compose["services"]["calendar-render-service"]
+    mounts = {mount["target"]: mount for mount in service_config["volumes"]}
+
+    assert set(mounts) == {
+        "/app/calendar_render_service/.env",
+        "/app/calendar_render_service/secrets.json",
+    }
+    assert all(mount["type"] == "bind" for mount in mounts.values())
+    assert all(mount["read_only"] is True for mount in mounts.values())
+    assert all(mount["bind"]["create_host_path"] is False for mount in mounts.values())
 
 
 def make_config(tmp_path: Path, create_layout_per_upload: bool = False) -> SimpleNamespace:
@@ -217,7 +240,92 @@ def test_service_main_runs_one_complete_cycle(monkeypatch: pytest.MonkeyPatch, t
     monkeypatch.setattr(service, "XiboClient", lambda *args: client)
     monkeypatch.setattr(service, "generate_calendar_images", lambda *args, **kwargs: [image])
     monkeypatch.setattr(service, "_upload_media_with_optional_layout", lambda *args, **kwargs: uploads.append(kwargs) or {"mediaId": "media-1"})
+    original_run_once = service.run_once
+    monkeypatch.setattr(service, "run_once", lambda config: original_run_once(config, now=datetime.fromisoformat("2026-09-10T12:00:00+00:00")))
 
     assert service.main() == 0
     assert [name for name, _details in client.calls].count("get_dataset") == 1
     assert len(uploads) == 1
+
+
+@pytest.mark.parametrize("run_on_start", [True, False])
+def test_scheduler_and_independent_jobs_reload_dedicated_service_files(monkeypatch, tmp_path, run_on_start):
+    from calendar_render_service import config as service_config, scheduler
+    from xibo_sync.env_io import load_settings
+    from xibo_sync.config import load_config
+
+    service_dir = tmp_path / "service"
+    sync_dir = tmp_path / "sync"
+    service_dir.mkdir()
+    sync_dir.mkdir()
+    (service_dir / ".env").write_text(f"CMS_BASE_URL=http://service\nCALENDAR_RENDER_CRON=*/15 * * * *\nCALENDAR_RENDER_RUN_ON_START={str(run_on_start).lower()}\n")
+    secrets_path = service_dir / "secrets.json"
+    secrets_path.write_text('{"CMS_CLIENT_ID":"service-id","CMS_CLIENT_SECRET":"service-secret"}')
+    (sync_dir / ".env").write_text("CMS_BASE_URL=http://sync\nSHAREPOINT_MEDIA_DIR=media\nSYNC_MODE=upload\n")
+    (sync_dir / "secrets.json").write_text('{"CMS_CLIENT_ID":"sync-id","CMS_CLIENT_SECRET":"sync-secret"}')
+    sync_cfg = load_config(values=load_settings(sync_dir)[0])
+    assert (sync_cfg.cms_client_id, sync_cfg.cms_client_secret) == ("sync-id", "sync-secret")
+    monkeypatch.setattr(service_config, "__file__", str(service_dir / "config.py"))
+    monkeypatch.chdir(sync_dir)
+    monkeypatch.setattr(service, "setup_logging", lambda *args: None)
+    monkeypatch.setattr(scheduler, "setup_logging", lambda *args: None)
+    cycles = []
+    monkeypatch.setattr(service, "run_once", lambda cfg: cycles.append(cfg) or {})
+    cron_path = tmp_path / "service.cron"
+    original_write_crontab = scheduler.write_crontab
+    monkeypatch.setattr(scheduler, "write_crontab", lambda cfg: original_write_crontab(cfg, cron_path))
+    commands = []
+
+    def startup(command, check):
+        commands.append(command)
+        return SimpleNamespace(returncode=service.main())
+
+    monkeypatch.setattr(scheduler.subprocess, "run", startup)
+    exec_calls = []
+    monkeypatch.setattr(scheduler.os, "execv", lambda *args: exec_calls.append(args))
+    before_environment = dict(os.environ)
+    baseline = (service_dir / ".env").read_bytes()
+    scheduler.main()
+    assert len(cycles) == int(run_on_start)
+    assert commands == ([list(scheduler.JOB_COMMAND)] if run_on_start else [])
+    assert cron_path.read_text().startswith("*/15 * * * * ")
+    assert exec_calls[0][0] == scheduler.SUPERCRONIC_COMMAND
+    secrets_path.write_text('{"CMS_CLIENT_ID":"rotated-id","CMS_CLIENT_SECRET":"rotated-secret"}')
+    assert service.main() == 0
+    assert (cycles[-1].cms_client_id, cycles[-1].cms_client_secret) == ("rotated-id", "rotated-secret")
+    assert cycles[-1].cms_base_url == "http://service"
+    assert (service_dir / ".env").read_bytes() == baseline
+    assert json.loads(secrets_path.read_text())["CMS_CLIENT_ID"] == "rotated-id"
+    assert not (service_dir / "sync-state.json").exists()
+    assert dict(os.environ) == before_environment
+
+
+@pytest.mark.parametrize("failure", ["missing_baseline", "missing_secrets", "invalid_secrets", "legacy_credentials", "misplaced_graph_credentials"])
+@pytest.mark.parametrize("entrypoint", ["scheduler", "one_shot"])
+def test_invalid_service_files_stop_startup_before_jobs_or_network(monkeypatch, tmp_path, failure, entrypoint):
+    from calendar_render_service import config as service_config, scheduler
+
+    baseline = tmp_path / ".env"
+    secrets = tmp_path / "secrets.json"
+    baseline.write_text("CMS_BASE_URL=http://service\n")
+    secrets.write_text('{"CMS_CLIENT_ID":"service-id","CMS_CLIENT_SECRET":"private-canary"}')
+    if failure == "missing_baseline":
+        baseline.unlink()
+    elif failure == "missing_secrets":
+        secrets.unlink()
+    elif failure == "invalid_secrets":
+        secrets.write_text('{broken-private-canary')
+    elif failure == "legacy_credentials":
+        baseline.write_text("CMS_BASE_URL=http://service\nCMS_CLIENT_SECRET=private-canary\n")
+    else:
+        secrets.write_text('{"GRAPH_CLIENT_SECRET":"private-canary"}')
+    monkeypatch.setattr(service_config, "__file__", str(tmp_path / "config.py"))
+    calls = []
+    monkeypatch.setattr(service, "run_once", lambda *args: calls.append("cycle"))
+    monkeypatch.setattr(scheduler, "write_crontab", lambda *args: calls.append("cron"))
+    monkeypatch.setattr(scheduler.subprocess, "run", lambda *args, **kwargs: calls.append("subprocess"))
+    monkeypatch.setattr(scheduler.os, "execv", lambda *args: calls.append("exec"))
+    with pytest.raises(ValueError) as error:
+        (scheduler.main if entrypoint == "scheduler" else service.main)()
+    assert "private-canary" not in str(error.value)
+    assert calls == []

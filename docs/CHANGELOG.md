@@ -12,6 +12,11 @@ work that has already been completed.
 
 ## Changes
 
+### 2026-10-21 - Separate remembered settings and application credentials from dotenv configuration
+- Status: `Planned`
+- Summary: Keep non-secret baseline settings in `.env`, persist interactive sync settings in `scripts/sync-state.json`, and store sync and calendar render service credentials in separate local `secrets.json` files. Add explicit conflict-safe migration, source-aware loading, write-free configuration previews, read-only service mounts, and Git/Docker exclusions for private files.
+- Plan: [docs/PLAN.md](PLAN.md)
+
 ### 2026-10-06 - Two-phase sync with Microsoft Graph download
 - Status: `Planned`
 - Summary: Add phase 1 that downloads Outlook calendar events (`calendarView`) and SharePoint media through Microsoft Graph (MSAL client credentials) while online, pause for the manual switch to the Xibo hotspot with a verified health check, then run the existing media sync and calendar DataSet upload as phase 2. Adds `SYNC_MODE`/`--mode` (`full`, `download`, `upload`), renames `LOCAL_MEDIA_DIR` to `SHAREPOINT_MEDIA_DIR`, adds `CALENDAR_IMAGE_DIR`, and removes `--upload-calendar`.

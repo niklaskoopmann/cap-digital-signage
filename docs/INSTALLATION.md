@@ -123,6 +123,15 @@ http://<host-ip-or-dns>/
 
 Complete the initial Xibo installer. Record the CMS administrator account in the project's secure credential store, not in version control.
 
+After installation, open **Administration > Settings > Configuration** and find
+**Resizing Images**. Set **Resize Limit** to `15000` pixels, or to a value at
+least as large as the longest edge of the largest source image you intend to use.
+Xibo rejects images whose longest edge exceeds this limit. **Resize Threshold**
+is a separate setting that controls when images are resized; it does not replace
+the hard limit. This CMS setting is stored by Xibo, so it is not configured in
+Docker's `config.env` and does not require rebuilding the container. PHP upload
+size settings only affect the upload size in bytes.
+
 ## 5. Create the Xibo OAuth Applications
 
 In the Xibo CMS, create two separate OAuth applications under `Administration > Applications`:
@@ -151,6 +160,8 @@ Create the local environment file:
 
 ```bash
 cp .env.example .env 2>/dev/null || true
+cp secrets.example.json secrets.json
+chmod 600 .env secrets.json
 ```
 
 If no `.env.example` exists in your checkout, create `scripts/.env` manually using the keys documented in [TECHNICAL.md](TECHNICAL.md). Minimum values for authenticated operation are:
@@ -160,14 +171,9 @@ CMS_BASE_URL=http://<host-ip-or-dns>
 CMS_VERIFY_TLS=false
 CMS_TIMEOUT_SECONDS=30
 AUTH_MODE=oauth
-CMS_CLIENT_ID=<xibo-sync-client-id>
-CMS_CLIENT_SECRET=<xibo-sync-client-secret>
 SYNC_MODE=full
 SHAREPOINT_MEDIA_DIR=../media
 CALENDAR_IMAGE_DIR=../calendar_images
-GRAPH_TENANT_ID=<entra-tenant-id>
-GRAPH_CLIENT_ID=<entra-application-id>
-GRAPH_CLIENT_SECRET=<entra-client-secret>
 GRAPH_SHAREPOINT_SITE_ID=<sharepoint-site-id>
 GRAPH_SHAREPOINT_FOLDER=test_images
 GRAPH_CALENDAR_USER_ID=<calendar-mailbox-user-id>
@@ -182,6 +188,12 @@ ONLY_DELETE_MANAGED_TAG=true
 Grant the Entra ID application `Calendars.Read` and `Sites.Read.All` application permissions and
 grant admin consent. Existing `.env` files must configure `SHAREPOINT_MEDIA_DIR`; there is no
 legacy-key fallback.
+
+Edit `scripts/secrets.json` with the CMS client ID/secret and Graph tenant/client ID/secret from
+the tracked example. Never put these five keys in `.env`. Existing installations can preview
+`python sync_xibo.py --migrate-config all --dry-run`, then run
+`python sync_xibo.py --migrate-config all`, with the virtual environment active. Migration stops
+on conflicts and is retry-safe after interrupted writes. See [USER_GUIDE.md](USER_GUIDE.md).
 
 Run a dry-run check:
 
@@ -202,6 +214,8 @@ Create the service environment file from the tracked template:
 ```bash
 cd /opt/cap-digital-signage
 cp services/calendar_render_service/.env.example services/calendar_render_service/.env
+cp services/calendar_render_service/secrets.example.json services/calendar_render_service/secrets.json
+chmod 600 services/calendar_render_service/.env services/calendar_render_service/secrets.json
 ```
 
 Edit `services/calendar_render_service/.env`:
@@ -209,8 +223,6 @@ Edit `services/calendar_render_service/.env`:
 ```dotenv
 CMS_BASE_URL=http://cms-web
 CMS_VERIFY_TLS=false
-CMS_CLIENT_ID=<calendar-generation-client-id>
-CMS_CLIENT_SECRET=<calendar-generation-client-secret>
 CALENDAR_DATASET_NAME=office_calendar_events
 CALENDAR_HTML_VIEWS=today,this_week,next_2_weeks
 CALENDAR_TEMPLATE_DIR=/app/templates/calendar
@@ -222,6 +234,11 @@ CALENDAR_CLEANUP_OLD_VIEW_UPLOADS=true
 ```
 
 Use `http://cms-web` for the service when it runs inside the same Docker Compose network. Enable `CREATE_LAYOUT_PER_UPLOAD`, `ASSIGN_LAYOUT_ON_CHANGE`, `IMMEDIATE_SHOW_ON_CHANGE`, and `DISPLAY_GROUP_ID` only after the CMS display groups and player registration are ready.
+
+Put the dedicated service CMS client ID/secret in its own `secrets.json`. Both service files must
+exist and are mounted read-only, never baked into the image. Credentials remain plaintext: restrict
+filesystem access and do not share the sync identity. After edits/rotation, recreate with
+`docker compose up -d --force-recreate calendar-render-service`.
 
 Rebuild and restart the stack so the service image is available:
 

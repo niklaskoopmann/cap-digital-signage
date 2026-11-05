@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
+from functools import partial
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
@@ -73,7 +75,7 @@ class Config:
     calendar_event_retention_days: int
 
 
-def getenv_bool(name: str, default: bool) -> bool:
+def getenv_bool(name: str, default: bool, *, values: Mapping[str, str] | None = None) -> bool:
     """Read a boolean environment variable with common truthy values.
 
     Args:
@@ -83,11 +85,11 @@ def getenv_bool(name: str, default: bool) -> bool:
     Returns:
         Parsed boolean value.
     """
-    v = os.getenv(name, str(default)).strip().lower()
+    v = (os.environ if values is None else values).get(name, str(default)).strip().lower()
     return v in ("1", "true", "yes", "y", "on")
 
 
-def getenv_int(name: str, default: int) -> int:
+def getenv_int(name: str, default: int, *, values: Mapping[str, str] | None = None) -> int:
     """Read an integer environment variable with a fallback default.
 
     Args:
@@ -97,13 +99,14 @@ def getenv_int(name: str, default: int) -> int:
     Returns:
         Parsed integer value.
     """
-    return int(os.getenv(name, str(default)).strip())
+    try:
+        return int((os.environ if values is None else values).get(name, str(default)).strip())
+    except ValueError:
+        raise ValueError(f"{name} must be an integer") from None
 
 
-def load_config(sync_mode: str | None = None) -> Config:
-    """Load configuration from environment variables.
-
-    This expects ``load_dotenv`` to have already populated the process environment.
+def load_config(sync_mode: str | None = None, *, values: Mapping[str, str] | None = None) -> Config:
+    """Load an explicit effective mapping, or the environment for direct callers.
 
     Returns:
         A populated :class:`Config` instance.
@@ -111,32 +114,36 @@ def load_config(sync_mode: str | None = None) -> Config:
     Raises:
         ValueError: Raised when a required setting is missing or invalid.
     """
-    cms_base_url = os.getenv("CMS_BASE_URL", "").strip().rstrip("/")
+    effective = os.environ if values is None else values
+    getenv = effective.get
+    get_bool = partial(getenv_bool, values=effective)
+    get_int = partial(getenv_int, values=effective)
+    cms_base_url = getenv("CMS_BASE_URL", "").strip().rstrip("/")
     if not cms_base_url:
         raise ValueError("CMS_BASE_URL must be set (e.g. http://192.168.1.1)")
 
-    auth_mode = os.getenv("AUTH_MODE", "oauth").strip().lower()
+    auth_mode = getenv("AUTH_MODE", "oauth").strip().lower()
     if auth_mode not in ("none", "oauth"):
         raise ValueError("AUTH_MODE must be 'none' or 'oauth'")
 
-    cms_client_id = os.getenv("CMS_CLIENT_ID", "").strip() or None
-    cms_client_secret = os.getenv("CMS_CLIENT_SECRET", "").strip() or None
+    cms_client_id = getenv("CMS_CLIENT_ID", "").strip() or None
+    cms_client_secret = getenv("CMS_CLIENT_SECRET", "") or None
     if auth_mode == "oauth" and (not cms_client_id or not cms_client_secret):
-        raise ValueError("For AUTH_MODE=oauth you must set CMS_CLIENT_ID and CMS_CLIENT_SECRET in .env")
+        raise ValueError("For AUTH_MODE=oauth set CMS_CLIENT_ID and CMS_CLIENT_SECRET in secrets.json or the process environment")
 
-    sharepoint_dir = os.getenv("SHAREPOINT_MEDIA_DIR", "").strip()
+    sharepoint_dir = getenv("SHAREPOINT_MEDIA_DIR", "").strip()
     if not sharepoint_dir:
         raise ValueError("SHAREPOINT_MEDIA_DIR must be set")
 
-    configured_sync_mode = (sync_mode or os.getenv("SYNC_MODE", "full")).strip().lower()
+    configured_sync_mode = (sync_mode or getenv("SYNC_MODE", "full")).strip().lower()
     if configured_sync_mode not in ("full", "download", "upload"):
         raise ValueError("SYNC_MODE must be 'full', 'download', or 'upload'")
 
-    graph_tenant_id = os.getenv("GRAPH_TENANT_ID", "").strip() or None
-    graph_client_id = os.getenv("GRAPH_CLIENT_ID", "").strip() or None
-    graph_client_secret = os.getenv("GRAPH_CLIENT_SECRET", "").strip() or None
-    graph_sharepoint_site_id = os.getenv("GRAPH_SHAREPOINT_SITE_ID", "").strip() or None
-    graph_calendar_user_id = os.getenv("GRAPH_CALENDAR_USER_ID", "").strip() or None
+    graph_tenant_id = getenv("GRAPH_TENANT_ID", "").strip() or None
+    graph_client_id = getenv("GRAPH_CLIENT_ID", "").strip() or None
+    graph_client_secret = getenv("GRAPH_CLIENT_SECRET", "") or None
+    graph_sharepoint_site_id = getenv("GRAPH_SHAREPOINT_SITE_ID", "").strip() or None
+    graph_calendar_user_id = getenv("GRAPH_CALENDAR_USER_ID", "").strip() or None
     required_graph_settings = {
         "GRAPH_TENANT_ID": graph_tenant_id,
         "GRAPH_CLIENT_ID": graph_client_id,
@@ -149,9 +156,9 @@ def load_config(sync_mode: str | None = None) -> Config:
         if missing_graph_settings:
             raise ValueError(f"Required for SYNC_MODE={configured_sync_mode}: {', '.join(missing_graph_settings)}")
 
-    graph_calendar_days_ahead = getenv_int("GRAPH_CALENDAR_DAYS_AHEAD", 14)
-    graph_calendar_keep_snapshots = getenv_int("GRAPH_CALENDAR_KEEP_SNAPSHOTS", 10)
-    graph_timeout_seconds = getenv_int("GRAPH_TIMEOUT_SECONDS", 30)
+    graph_calendar_days_ahead = get_int("GRAPH_CALENDAR_DAYS_AHEAD", 14)
+    graph_calendar_keep_snapshots = get_int("GRAPH_CALENDAR_KEEP_SNAPSHOTS", 10)
+    graph_timeout_seconds = get_int("GRAPH_TIMEOUT_SECONDS", 30)
     for key, value in (
         ("GRAPH_CALENDAR_DAYS_AHEAD", graph_calendar_days_ahead),
         ("GRAPH_CALENDAR_KEEP_SNAPSHOTS", graph_calendar_keep_snapshots),
@@ -160,82 +167,82 @@ def load_config(sync_mode: str | None = None) -> Config:
         if value < 1:
             raise ValueError(f"{key} must be >= 1")
 
-    exts = os.getenv("MEDIA_EXTENSIONS", ".jpg,.jpeg,.png,.gif,.mp4").strip()
+    exts = getenv("MEDIA_EXTENSIONS", ".jpg,.jpeg,.png,.gif,.mp4").strip()
     media_extensions = tuple(e.strip().lower() for e in exts.split(",") if e.strip())
 
-    compare_mode = os.getenv("COMPARE_MODE", "filename").strip().lower()
+    compare_mode = getenv("COMPARE_MODE", "filename").strip().lower()
     if compare_mode not in ("filename", "hash"):
         raise ValueError("COMPARE_MODE must be 'filename' or 'hash'")
 
-    _html_views_raw = os.getenv("CALENDAR_HTML_VIEWS", "today,this_week,next_2_weeks").strip()
+    _html_views_raw = getenv("CALENDAR_HTML_VIEWS", "today,this_week,next_2_weeks").strip()
     calendar_html_views: Tuple[str, ...] = tuple(
         v.strip() for v in _html_views_raw.split(",") if v.strip()
     )
 
     return Config(
         cms_base_url=cms_base_url,
-        cms_verify_tls=getenv_bool("CMS_VERIFY_TLS", False),
-        cms_timeout=getenv_int("CMS_TIMEOUT_SECONDS", 30),
+        cms_verify_tls=get_bool("CMS_VERIFY_TLS", False),
+        cms_timeout=get_int("CMS_TIMEOUT_SECONDS", 30),
 
         auth_mode=auth_mode,
         cms_client_id=cms_client_id,
         cms_client_secret=cms_client_secret,
 
         sharepoint_media_dir=Path(sharepoint_dir),
-        calendar_image_dir=Path(os.getenv("CALENDAR_IMAGE_DIR", "../calendar_images").strip()),
+        calendar_image_dir=Path(getenv("CALENDAR_IMAGE_DIR", "../calendar_images").strip()),
         sync_mode=configured_sync_mode,
         graph_tenant_id=graph_tenant_id,
         graph_client_id=graph_client_id,
         graph_client_secret=graph_client_secret,
         graph_sharepoint_site_id=graph_sharepoint_site_id,
-        graph_sharepoint_folder=os.getenv("GRAPH_SHAREPOINT_FOLDER", "test_images").strip(),
+        graph_sharepoint_folder=getenv("GRAPH_SHAREPOINT_FOLDER", "test_images").strip(),
         graph_calendar_user_id=graph_calendar_user_id,
         graph_calendar_days_ahead=graph_calendar_days_ahead,
         graph_calendar_keep_snapshots=graph_calendar_keep_snapshots,
         graph_timeout_seconds=graph_timeout_seconds,
-        graph_base_url=os.getenv("GRAPH_BASE_URL", "https://graph.microsoft.com/v1.0").strip().rstrip("/"),
-        calendar_json_path=Path(os.getenv(
+        graph_base_url=getenv("GRAPH_BASE_URL", "https://graph.microsoft.com/v1.0").strip().rstrip("/"),
+        calendar_json_path=Path(getenv(
             "CALENDAR_JSON_PATH",
             r"C:\Users\rogrun\OneDrive - Capgemini\Xibo_Sync\office_calendar",
         ).strip()),
-        calendar_dataset_name=os.getenv("CALENDAR_DATASET_NAME", "office_calendar_events").strip(),
-        calendar_dataset_code=os.getenv("CALENDAR_DATASET_CODE", "").strip() or None,
-        calendar_upload_cancelled_events=getenv_bool("CALENDAR_UPLOAD_CANCELLED_EVENTS", False),
+        calendar_dataset_name=getenv("CALENDAR_DATASET_NAME", "office_calendar_events").strip(),
+        calendar_dataset_code=getenv("CALENDAR_DATASET_CODE", "").strip() or None,
+        calendar_upload_cancelled_events=get_bool("CALENDAR_UPLOAD_CANCELLED_EVENTS", False),
         media_extensions=media_extensions,
         compare_mode=compare_mode,
 
-        managed_tag=os.getenv("MANAGED_TAG", "xibo-sync").strip(),
-        delete_layout_with_media=getenv_bool("DELETE_LAYOUT_WITH_MEDIA", False),
-        only_delete_managed_tag=getenv_bool("ONLY_DELETE_MANAGED_TAG", True),
-        managed_folder_id=os.getenv("MANAGED_FOLDER_ID", "").strip() or None,
+        managed_tag=getenv("MANAGED_TAG", "xibo-sync").strip(),
+        delete_layout_with_media=get_bool("DELETE_LAYOUT_WITH_MEDIA", False),
+        only_delete_managed_tag=get_bool("ONLY_DELETE_MANAGED_TAG", True),
+        managed_folder_id=getenv("MANAGED_FOLDER_ID", "").strip() or None,
 
-        upload_new_local=getenv_bool("UPLOAD_NEW_LOCAL", True),
-        delete_remote_not_local=getenv_bool("DELETE_REMOTE_NOT_LOCAL", False),
-        dry_run=getenv_bool("DRY_RUN", False),
+        upload_new_local=get_bool("UPLOAD_NEW_LOCAL", True),
+        delete_remote_not_local=get_bool("DELETE_REMOTE_NOT_LOCAL", False),
+        dry_run=get_bool("DRY_RUN", False),
 
-        display_group_id=os.getenv("DISPLAY_GROUP_ID", "").strip() or None,
-        trigger_collectnow_on_changes=getenv_bool("TRIGGER_COLLECTNOW_ON_CHANGES", True),
+        display_group_id=getenv("DISPLAY_GROUP_ID", "").strip() or None,
+        trigger_collectnow_on_changes=get_bool("TRIGGER_COLLECTNOW_ON_CHANGES", True),
 
         # Layout/display workflow flags
-        create_layout_per_upload=getenv_bool("CREATE_LAYOUT_PER_UPLOAD", False),
-        assign_layout_on_change=getenv_bool("ASSIGN_LAYOUT_ON_CHANGE", False),
-        publish_on_change=getenv_bool("PUBLISH_ON_CHANGE", True),
-        immediate_show_on_change=getenv_bool("IMMEDIATE_SHOW_ON_CHANGE", False),
+        create_layout_per_upload=get_bool("CREATE_LAYOUT_PER_UPLOAD", False),
+        assign_layout_on_change=get_bool("ASSIGN_LAYOUT_ON_CHANGE", False),
+        publish_on_change=get_bool("PUBLISH_ON_CHANGE", True),
+        immediate_show_on_change=get_bool("IMMEDIATE_SHOW_ON_CHANGE", False),
 
-        xibo_upload_field=os.getenv("XIBO_UPLOAD_FIELD", "files").strip(),
-        hash_tag_prefix=os.getenv("HASH_TAG_PREFIX", "sha256:").strip(),
+        xibo_upload_field=getenv("XIBO_UPLOAD_FIELD", "files").strip(),
+        hash_tag_prefix=getenv("HASH_TAG_PREFIX", "sha256:").strip(),
 
-        log_level=os.getenv("LOG_LEVEL", "INFO").strip().upper(),
-        log_file=os.getenv("LOG_FILE", "").strip() or None,
+        log_level=getenv("LOG_LEVEL", "INFO").strip().upper(),
+        log_file=getenv("LOG_FILE", "").strip() or None,
 
-        calendar_enable_html=getenv_bool("CALENDAR_ENABLE_HTML", False),
+        calendar_enable_html=get_bool("CALENDAR_ENABLE_HTML", False),
         calendar_html_views=calendar_html_views,
-        calendar_template_dir=Path(os.getenv(
+        calendar_template_dir=Path(getenv(
             "CALENDAR_TEMPLATE_DIR",
             "templates/calendar",
         ).strip()),
-        calendar_auto_publish=getenv_bool("CALENDAR_AUTO_PUBLISH", True),
-        calendar_timezone=os.getenv("CALENDAR_TIMEZONE", "Europe/Berlin").strip() or "Europe/Berlin",
-        calendar_package_retention_days=getenv_int("CALENDAR_PACKAGE_RETENTION_DAYS", 30),
-        calendar_event_retention_days=getenv_int("CALENDAR_EVENT_RETENTION_DAYS", 30),
+        calendar_auto_publish=get_bool("CALENDAR_AUTO_PUBLISH", True),
+        calendar_timezone=getenv("CALENDAR_TIMEZONE", "Europe/Berlin").strip() or "Europe/Berlin",
+        calendar_package_retention_days=get_int("CALENDAR_PACKAGE_RETENTION_DAYS", 30),
+        calendar_event_retention_days=get_int("CALENDAR_EVENT_RETENTION_DAYS", 30),
     )

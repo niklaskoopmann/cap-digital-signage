@@ -131,7 +131,8 @@ def _load_selected_env() -> tuple[Path, dict[str, str]]:
     path = Path(raw_path).expanduser().resolve()
     if path == (SCRIPTS_DIR / ".env").resolve():
         raise RuntimeError("SYSTEM_TEST_ENV_FILE must not point to scripts/.env")
-    values = {key: value for key, value in dotenv_values(path).items() if value is not None}
+    from tests import load_system_settings
+    values = load_system_settings(path)
     endpoint = os.environ.get("SYSTEM_TEST_CMS_BASE_URL", values.get("CMS_BASE_URL", "")).strip()
     parsed = urlparse(endpoint)
     if parsed.scheme != "http" or parsed.hostname not in {"localhost", "127.0.0.1"} or parsed.port not in {None, 80}:
@@ -146,7 +147,8 @@ def _load_selected_env() -> tuple[Path, dict[str, str]]:
 
 
 def _write_env(path: Path, values: dict[str, str]) -> None:
-    path.write_text("".join(f"{key}={value}\n" for key, value in values.items()), encoding="utf-8")
+    from tests import write_system_settings
+    write_system_settings(path, values)
 
 
 def _png_dimensions(path: Path) -> tuple[int, int]:

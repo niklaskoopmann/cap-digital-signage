@@ -31,6 +31,12 @@ This repository centers on the Xibo media sync workflow.
   dependencies and browser with `pip install -r requirements.txt` and `playwright install chromium`.
 - Phase 1 Graph downloads use `SHAREPOINT_MEDIA_DIR` and a local `.sharepoint_manifest.json`;
   existing `.env` files must be updated to use the new key.
+- Configuration uses non-secret `.env` baselines, `scripts/sync-state.json` for interactive edits,
+  and separate `secrets.json` files for sync and the render service. Process environment overrides
+  files; CLI overrides settings. Normal execution/wizard never write `.env`; explicit
+  `--migrate-config sync|calendar-service|all` removes only verified migrated assignments.
+- Service configuration/credentials are read-only mounts. Never copy private files into images
+  or logs. Dry-run must not persist configuration, credentials, state, or temporary files.
 
 ## Player reference
 
@@ -54,6 +60,9 @@ This repository centers on the Xibo media sync workflow.
   test modules that invoke `sync_xibo.py` without `--dry-run` and query the CMS with their own
   test client. They must be excluded from the default pytest collection and require an explicit
   test-only `.env` path (for example, `SYSTEM_TEST_ENV_FILE`) rather than reading `scripts/.env`.
+- System tests require separate test-only credentials from the selected configuration's sibling
+  `secrets.json`, `SYSTEM_TEST_SECRETS_FILE`, or explicit CMS process credentials. Production
+  configuration/credential paths are forbidden; isolate file loaders in offline tests.
 - Every new piece of custom logic added to `scripts/xibo_sync/` must ship with a test: unit test in
   the matching module's test file, plus an integration test if the change wires modules together.
 - Run tests with `python -m pytest` from `scripts/` after activating `scripts/.venv` (install `scripts/requirements-dev.txt` first). See

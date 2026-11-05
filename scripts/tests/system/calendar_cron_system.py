@@ -29,7 +29,8 @@ def _load_env() -> dict[str, str]:
     path = Path(selected).expanduser().resolve()
     if path == (SCRIPTS_DIR / ".env").resolve():
         raise RuntimeError("SYSTEM_TEST_ENV_FILE must not point to scripts/.env")
-    values = {key: value for key, value in dotenv_values(path).items() if value is not None}
+    from tests import load_system_settings
+    values = load_system_settings(path)
     endpoint = values.get("CMS_BASE_URL", "").strip()
     parsed = urlparse(endpoint)
     if parsed.scheme != "http" or parsed.hostname not in {"localhost", "127.0.0.1"} or parsed.port not in {None, 80}:

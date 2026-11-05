@@ -14,6 +14,34 @@ REQUIRED_ENV = {
 }
 
 
+def test_explicit_values_are_parsed_without_reading_or_mutating_environment(monkeypatch):
+    import os
+
+    monkeypatch.setenv("CMS_BASE_URL", "http://process")
+    monkeypatch.setenv("CMS_TIMEOUT_SECONDS", "99")
+    values = {**REQUIRED_ENV, "CMS_BASE_URL": "http://effective/", "CMS_TIMEOUT_SECONDS": "17", "DRY_RUN": "true"}
+    original = dict(values)
+    environment = dict(os.environ)
+    cfg = load_config(values=values)
+    assert cfg.cms_base_url == "http://effective"
+    assert cfg.cms_timeout == 17
+    assert cfg.dry_run is True
+    assert values == original
+    assert dict(os.environ) == environment
+
+
+def test_cli_mode_beats_explicit_mapping_and_environment(monkeypatch):
+    monkeypatch.setenv("SYNC_MODE", "download")
+    cfg = load_config(sync_mode="upload", values={**REQUIRED_ENV, "SYNC_MODE": "full"})
+    assert cfg.sync_mode == "upload"
+
+
+def test_invalid_integer_reports_only_key_not_value():
+    with pytest.raises(ValueError, match="CMS_TIMEOUT_SECONDS") as error:
+        load_config(values={**REQUIRED_ENV, "CMS_TIMEOUT_SECONDS": "private-canary"})
+    assert "private-canary" not in str(error.value)
+
+
 def _clear_optional_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for key in (
         "CMS_CLIENT_ID",

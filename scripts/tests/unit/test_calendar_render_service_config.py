@@ -3,6 +3,13 @@ import pytest
 from calendar_render_service.config import load_config
 
 
+@pytest.fixture(autouse=True)
+def isolated_service_files(tmp_path, monkeypatch):
+    from xibo_sync.env_io import load_settings
+    monkeypatch.setattr("calendar_render_service.config.load_settings",
+                        lambda _directory, **kwargs: load_settings(tmp_path, **kwargs))
+
+
 def test_service_config_requires_dedicated_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CMS_BASE_URL", "http://cms-web")
     monkeypatch.delenv("CMS_CLIENT_ID", raising=False)

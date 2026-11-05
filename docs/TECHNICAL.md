@@ -98,7 +98,9 @@ authorization, and first Portainer launch.
     - `fixtures/`: sample calendar and test data.
   - `templates/calendar/`: editable calendar Jinja template, preview data, assets, and view configs.
   - `.venv/`: local Python virtual environment; activate before any Python or pip command.
-  - `.env`: local configuration and credentials.
+  - `.env`: operator-maintained non-secret baseline configuration.
+  - `sync-state.json`: changed interactive non-secret settings; overrides the baseline.
+  - `secrets.json`: local CMS/Graph credentials, never committed or copied into an image.
   - `requirements.txt`: Python dependencies.
   - `requirements-dev.txt`: pytest and development dependencies.
   - `logs/`: optional log output target.
@@ -119,7 +121,46 @@ always provide the IANA timezone database used by `zoneinfo`. Calendar timezone 
 
 ## Runtime Configuration
 
-Both scripts load environment variables from `scripts/.env`.
+The sync application reads `scripts/.env`, `scripts/sync-state.json`, and `scripts/secrets.json`
+without changing the process environment. The render service uses its own `.env` and
+`secrets.json` under `services/calendar_render_service/`; it has no state file.
+
+Settings resolve as CLI > process environment > saved state > `.env` > built-in defaults.
+Credentials resolve only as process environment > application-specific secrets. Credential keys
+are `CMS_CLIENT_ID`, `CMS_CLIENT_SECRET`, `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, and
+`GRAPH_CLIENT_SECRET`; the service accepts only the CMS pair. Credential assignments in `.env`
+are rejected even with environment overrides. Unknown/misplaced keys, duplicate keys, non-string
+values, and malformed/unreadable JSON stop execution before external calls. JSON files are flat
+objects with uppercase keys and string values, e.g. `{"DELETE_REMOTE_NOT_LOCAL": "false"}`.
+
+The wizard saves only actual changes, not merged baseline/environment values; ENTER retains the
+current value. Environment overrides remain authoritative. Effective settings show sources and
+mask credentials. Only interactive deletion answers are remembered, never `--yes` or CLI flags.
+Remove selected state keys to restore baseline/default behavior. Normal runs and wizard never
+modify `.env`; dry-run suppresses configuration/state/credential/temp writes, including `--config`,
+and cannot be disabled midway through a preview.
+
+Explicit migration is the only automatic `.env` mutation. From `scripts/` with `.venv` activated:
+
+```powershell
+python .\sync_xibo.py --migrate-config all --dry-run
+python .\sync_xibo.py --migrate-config all
+```
+
+Use `sync` or `calendar-service` instead of `all` for one installation. Migration does not start
+network operations or require complete runtime configuration. It moves credentials and the sync
+deletion choice, preserving dotenv literals/comments and unrelated settings. Conflicting existing
+destination values stop preflight: reconcile the named keys manually and retry. Identical values
+are safe. Destinations are atomically replaced and verified before source assignments are removed.
+Commits are per file/installation, not a multi-file transaction; after interruption, rerun to finish
+cleanup of identical duplicated keys. No secret-bearing backup is made. Wizard partial saves also
+require checking access and retrying before sync.
+
+JSON credentials are plaintext, not encrypted. Private files and temporary files are excluded
+from Git and Docker contexts. POSIX writes use owner-only permissions; restrict Windows ACLs to
+operator/service identities. Rotate credentials in the appropriate file or process environment.
+Rollback requires the prior application/image and deliberate manual restoration of its configuration
+under restricted access; no automatic reverse migration or legacy fallback exists.
 
 ### Common keys
 
@@ -382,8 +423,12 @@ does not drift away from the bundled Chromium executable. The image installs
 `scripts/requirements.txt`; rebuild the calendar render service image after adding runtime packages
 such as MSAL before deploying the updated scripts.
 Compose adds it to `xibo/xibo-docker-4.4.2/docker-compose.yml` with no published ports. Create
-`services/calendar_render_service/.env` from its `.env.example`; keep the credential file out of
-version control.
+`services/calendar_render_service/.env` from its `.env.example` and its separate `secrets.json`
+from `secrets.example.json`. Compose mounts both read-only and requires existing sources;
+file credentials are not exported into the container environment. Scheduler and one-shot jobs
+load files independently. Preserve explicit container `TZ` for cron; `CALENDAR_TIMEZONE` controls
+events. Recreate after edits (`docker compose up -d --force-recreate calendar-render-service`)
+because atomic replacement can leave a bind mount on an old inode. Never share the sync identity.
 
 Each daily cycle fetches the configured calendar DataSet, filters it by the retention window, renders
 the configured views, and uploads each image through the shared media/layout workflow. The service
@@ -468,7 +513,7 @@ scope for this phase; manage old library items via normal media-sync settings or
 
 ### `sync_xibo.py`
 
-1. Load `.env`, show settings, and optionally run the configuration wizard.
+1. Load baseline/state/secrets with environment overrides, show sources, and optionally edit saved settings.
 2. Resolve the delete decision at startup when the selected mode includes phase 2.
 3. In `full`/`download`, authenticate with Graph and download the calendar snapshot and SharePoint
   media. Calendar and media failures are collected independently; `download` exits nonzero on any
@@ -508,6 +553,11 @@ extend an integration test with a mocked `XiboClient` rather than exercising a r
 deterministic and offline; never depend on a live Xibo CMS or network access.
 
 `scripts/api_tests.py` is a manual, ad-hoc experiment script, not part of the automated suite.
+
+System harnesses require isolated non-secret `SYSTEM_TEST_ENV_FILE` configuration. Use its sibling
+`secrets.json` or `SYSTEM_TEST_SECRETS_FILE` for test-only CMS credentials; explicit CMS process
+credentials also work. Production `.env`/secrets paths are forbidden. Generated harness configuration
+also stores credentials separately. No test may modify real local configuration or credentials.
 
 ## Comparison Modes
 
@@ -586,8 +636,8 @@ Typical setup flow:
 3. Open the CMS web UI and complete the initial installer.
 4. Create two OAuth applications in Administration > Applications: one for `xibo-sync` and one for
   the calendar render service.
-5. Copy the `xibo-sync` client credentials into `scripts/.env`.
-6. Copy the calendar render service credentials into `services/calendar_render_service/.env`.
+5. Copy the `xibo-sync` client credentials into `scripts/secrets.json`.
+6. Copy the calendar render service credentials into `services/calendar_render_service/secrets.json`.
 7. Register and authorize the Electron player in the CMS.
 8. Complete the first Portainer launch at `http://<host>:9000` or `https://<host>:9443`.
 

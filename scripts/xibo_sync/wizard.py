@@ -1,10 +1,10 @@
-"""Interactive .env configuration wizard for the sync tool."""
+"""Interactive editor for saved settings and separate application credentials."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from .env_io import read_env_file, write_env_file
+from .env_io import load_settings, save_edits, is_dry_run
 from .ui import prompt_edit, prompt_password, ui_header, ui_ok
 
 
@@ -14,14 +14,11 @@ def must_be_sync_mode(value: str) -> None:
         raise ValueError("Allowed: full | download | upload")
 
 
-def config_wizard(env_path: Path) -> None:
-    """Prompt the operator for settings and persist them to ``scripts/.env``.
-
-    Args:
-        env_path: Path to the ``.env`` file that should be updated.
-    """
-    env_data = read_env_file(env_path)
-    original_lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
+def config_wizard(env_path: Path, *, dry_run: bool = False) -> dict[str, str]:
+    """Edit effective settings without modifying the baseline dotenv file."""
+    env_data, _ = load_settings(env_path.parent)
+    before = dict(env_data)
+    dry_run = dry_run or is_dry_run(env_data)
 
     ui_header("Configuration Wizard", "Edit settings. Press ENTER to keep current values.")
 
@@ -38,7 +35,9 @@ def config_wizard(env_path: Path) -> None:
             raise ValueError("Allowed: none | oauth")
 
     def get(k: str, default: str) -> str:
-        return env_data.get(k, default)
+        current = env_data.get(k, default)
+        before.setdefault(k, current)
+        return current
 
     env_data["CMS_BASE_URL"] = prompt_edit(
         "CMS_BASE_URL",
@@ -239,5 +238,23 @@ def config_wizard(env_path: Path) -> None:
         help_text="Optional log file path (relative). Blank disables file logging.",
     )
 
-    write_env_file(env_path, env_data, original_lines=original_lines)
-    ui_ok("Saved updated settings to .env")
+    for key, default in (
+        ("DELETE_LAYOUT_WITH_MEDIA", "false"), ("CREATE_LAYOUT_PER_UPLOAD", "false"),
+        ("ASSIGN_LAYOUT_ON_CHANGE", "false"), ("PUBLISH_ON_CHANGE", "true"),
+        ("IMMEDIATE_SHOW_ON_CHANGE", "false"), ("CALENDAR_EVENT_RETENTION_DAYS", "30"),
+    ):
+        env_data[key] = prompt_edit(key, get(key, default))
+
+    dry_run = dry_run or is_dry_run(env_data)
+    save_edits(env_path.parent, before, env_data, dry_run=dry_run)
+    if dry_run:
+        ui_ok("Preview only: settings were not saved")
+    else:
+        ui_ok("Changed settings saved to sync-state.json / secrets.json; .env unchanged")
+    effective, sources = load_settings(env_path.parent)
+    for key, value in env_data.items():
+        if sources.get(key) == "environment":
+            if before.get(key) != value:
+                ui_ok(f"{key}: process environment still overrides the edited value")
+            env_data[key] = effective[key]
+    return env_data

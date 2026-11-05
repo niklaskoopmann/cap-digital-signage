@@ -8,9 +8,10 @@
 	- [How to run the sync](#how-to-run-the-sync)
 		- [Safe preview first](#safe-preview-first)
 		- [Calendar preview](#calendar-preview)
-		- [Real sync](#real-sync)
+		- [Full sync](#full-sync)
 	- [Command-line options](#command-line-options)
 	- [What the settings mean](#what-the-settings-mean)
+		- [Configuration and remembered choices](#configuration-and-remembered-choices)
 	- [Calendar HTML Images](#calendar-html-images)
 		- [Prerequisites](#prerequisites)
 		- [Running](#running)
@@ -75,7 +76,7 @@ You need:
 
 - Python 3.10 or newer.
 - Access to the Xibo CMS.
-- A filled `scripts/.env` file.
+- Non-secret settings in `scripts/.env` and credentials in `scripts/secrets.json` (copy the tracked examples).
 - Your media files in the `media/` folder.
 - The local virtual environment at `scripts/.venv`.
 
@@ -138,6 +139,7 @@ Graph and run the existing Xibo media sync and calendar DataSet upload. `--mode`
 ## Command-line options
 
 - `--config`: open the interactive configuration editor and exit.
+- `--migrate-config sync|calendar-service|all`: migrate legacy storage and exit; only `--dry-run` may accompany it.
 - `--yes` or `-y`: run non-interactively and accept defaults.
 - `--dry-run`: show the plan but do not upload or delete.
 - `--mode full|download|upload`: select both phases, downloads only, or uploads only.
@@ -148,7 +150,7 @@ no snapshots, media files, or manifest. It then follows the normal hotspot and X
 
 Deletion behavior is controlled in two places:
 
-- `DELETE_REMOTE_NOT_LOCAL` in `scripts/.env` sets the default answer.
+- A saved interactive answer in `scripts/sync-state.json` overrides the baseline `DELETE_REMOTE_NOT_LOCAL` in `scripts/.env`.
 - `--delete` or `--no-delete` overrides that default for a single run.
 
 If deletion is enabled, the script only deletes remote items that are not present locally. When `ONLY_DELETE_MANAGED_TAG=true`, it further restricts deletes to items managed by this sync tool.
@@ -183,16 +185,49 @@ python .\sync_xibo.py --dry-run --yes
 
 ## What the settings mean
 
+### Configuration and remembered choices
+
+Keep baseline settings in `.env`. Wizard edits go to `scripts/sync-state.json`, with credentials
+in `scripts/secrets.json`; normal execution and the wizard never change `.env`. Both JSON files
+use string values, for example `{"SYNC_MODE": "upload"}`. ENTER keeps a value without saving
+unchanged baseline/environment values. An interactive deletion answer is remembered; `--delete`,
+`--no-delete`, and `--yes` never change the next run's default.
+
+Priority is CLI > process environment > saved state > `.env` > built-in defaults. Credentials
+resolve as process environment > secrets file only. The table shows effective values and sources;
+environment overrides still win over saved edits. Remove a state key to reset it to the baseline
+or default. Corrupt/misplaced settings stop execution instead of being silently ignored.
+
+For existing installations, activate `scripts/.venv` and run from `scripts/`:
+
+```powershell
+python .\sync_xibo.py --migrate-config all --dry-run
+python .\sync_xibo.py --migrate-config all
+```
+
+Use `sync` or `calendar-service` for one installation. Source assignments are removed only after
+destinations are verified. Conflicts stop migration; reconcile the named keys manually. After an
+interruption or partial save, check file access and rerun: identical existing values are safe.
+Other `.env` settings remain unchanged and no credential backup is created. Dry-run, including
+`--config --dry-run`, never saves configuration or creates temporary files.
+
+Credentials remain plaintext. Keep them out of version control and restrict Windows ACLs to the
+operator/service identity; POSIX private files are written owner-only. Use separate service and
+sync identities. Rotate credentials in the appropriate secrets file and recreate the service after
+edits. First-run `--config` works without `.env`; accepting displayed defaults uses them for that
+invocation, while only changed values are remembered. See [TECHNICAL.md](TECHNICAL.md) for
+migration recovery, deployment, and rollback constraints.
+
 The most important entries in `scripts/.env` are:
 
 - `CMS_BASE_URL`: the Xibo CMS address.
 - `AUTH_MODE`: `oauth` is recommended for a protected CMS.
-- `CMS_CLIENT_ID` and `CMS_CLIENT_SECRET`: OAuth credentials from Xibo.
+- `CMS_CLIENT_ID` and `CMS_CLIENT_SECRET`: OAuth credentials from Xibo in `scripts/secrets.json`, not `.env`.
 - `SHAREPOINT_MEDIA_DIR`: downloaded SharePoint files used by phase 2; usually `../media`.
 - `CALENDAR_IMAGE_DIR`: output directory for manually rendered calendar PNGs; defaults to
 	`../calendar_images` and is kept separate from SharePoint media.
 - `SYNC_MODE`: `full` by default, or `download` / `upload`.
-- `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`: Entra ID app credentials.
+- `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`: Entra ID credentials in `scripts/secrets.json`, not `.env`.
 - `GRAPH_SHAREPOINT_SITE_ID` and `GRAPH_SHAREPOINT_FOLDER`: SharePoint site and top-level folder.
 - `GRAPH_CALENDAR_USER_ID`: mailbox user ID or email address whose calendar is downloaded.
 - `GRAPH_CALENDAR_DAYS_AHEAD`, `GRAPH_CALENDAR_KEEP_SNAPSHOTS`, and `GRAPH_TIMEOUT_SECONDS`:
@@ -337,17 +372,19 @@ stack from `xibo/xibo-docker-4.4.2`:
 
 ```powershell
 Copy-Item ..\..\services\calendar_render_service\.env.example ..\..\services\calendar_render_service\.env
+Copy-Item ..\..\services\calendar_render_service\secrets.example.json ..\..\services\calendar_render_service\secrets.json
 docker compose up -d --build
 docker compose logs -f calendar-render-service
 ```
 
-Replace the placeholder `CMS_CLIENT_ID` and `CMS_CLIENT_SECRET` with a dedicated Xibo OAuth
+Replace the placeholders in the service's `secrets.json` with a dedicated Xibo OAuth
 client credential. Set `CMS_BASE_URL=http://cms-web` for the in-network CMS address. The service
 has no published port and uses `CALENDAR_EVENT_RETENTION_DAYS` independently from the uploader.
 Set `CALENDAR_RENDER_CRON` in the service `.env` to change the schedule, for example `0 6 * * *`
 for 06:00 daily, and set `TZ` to the matching IANA timezone. Set
-`CALENDAR_RENDER_RUN_ON_START=false` to disable the startup cycle. Restart the container after
-changing these values. Each cycle logs its completion counts; a failed cycle logs an exception and
+`CALENDAR_RENDER_RUN_ON_START=false` to disable the startup cycle. Recreate after changes with
+`docker compose up -d --force-recreate calendar-render-service`. Both files must exist and are
+mounted read-only. Each cycle logs its completion counts; a failed cycle logs an exception and
 exits, while the scheduler remains available for the next tick.
 
 ### Customizing Views
@@ -512,7 +549,7 @@ After the CMS starts for the first time:
 2. Log in as an administrator.
 3. Go to Administration → Applications.
 4. Create a new Application using Client Credentials.
-5. Copy the `Client Id` and `Client Secret` into `scripts/.env`.
+5. Copy the `Client Id` and `Client Secret` into `scripts/secrets.json` using the tracked JSON example.
 6. Edit the created Application.
 7. Under General, select `Authorisation Code`, `Client Credentials` and `Is Confidential`
 8. Under Sharing, select all Scopes.

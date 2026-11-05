@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import argparse
 import logging
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
-from dotenv import load_dotenv
 from rich.prompt import Confirm
 
 from .calendar_data import (
@@ -20,7 +20,7 @@ from .calendar_data import (
 from .calendar_html import generate_calendar_images
 from .client import XiboClient, media_layout_ownership_tag
 from .config import load_config
-from .env_io import read_env_file, write_env_file
+from .env_io import load_settings, save_edits, is_dry_run, migrate_config
 from .media import build_local_index, build_remote_index, list_local_media
 from .ui import console, ui_error, ui_header, ui_info, ui_ok, ui_settings_table, ui_warn
 from .wizard import config_wizard
@@ -408,12 +408,22 @@ def run_media_sync(cfg, run_delete: bool, *, xibo: XiboClient | None = None) -> 
         return 2
 
 
-def main() -> int:
+def main(*, scripts_dir: Path | None = None) -> int:
+    """Run with safe configuration diagnostics and an injectable test directory."""
+    try:
+        return _main(scripts_dir=scripts_dir)
+    except ValueError as exc:
+        ui_error(str(exc))
+        return 2
+
+
+def _main(*, scripts_dir: Path | None = None) -> int:
     """Run the configured download, hotspot-switch, and Xibo upload phases."""
-    scripts_dir = Path(__file__).resolve().parent.parent
+    scripts_dir = scripts_dir if scripts_dir is not None else Path(__file__).resolve().parent.parent
     env_path = scripts_dir / ".env"
     parser = argparse.ArgumentParser(description="Download SharePoint media and sync it to Xibo CMS", allow_abbrev=False)
     parser.add_argument("--config", action="store_true", help="Run configuration wizard and exit")
+    parser.add_argument("--migrate-config", choices=("sync", "calendar-service", "all"), help="Explicitly migrate legacy dotenv credentials and exit")
     parser.add_argument("--yes", "-y", action="store_true", help="Non-interactive: accept defaults and skip prompts")
     parser.add_argument("--dry-run", action="store_true", help="Preview actions without writing, uploading, or deleting")
     parser.add_argument("--mode", choices=("full", "download", "upload"), help="Select download/upload phases")
@@ -422,27 +432,46 @@ def main() -> int:
     parser.add_argument("--no-delete", dest="delete", action="store_false", help="Do not delete remote-only media")
     parser.set_defaults(delete=None)
     args = parser.parse_args()
+    if args.migrate_config:
+        if args.config or args.yes or args.mode or args.upload_calendar_html or args.delete is not None:
+            parser.error("--migrate-config may only be combined with --dry-run")
+        migrate_config(scripts_dir.parent, args.migrate_config, dry_run=args.dry_run)
+        ui_ok("Migration checked/completed; dry-run leaves all files unchanged")
+        return 0
     ui_header("Xibo Media Sync", "Download from Microsoft Graph, switch to the Xibo hotspot, then upload")
-    env_data = read_env_file(env_path)
+    env_data, sources = load_settings(scripts_dir)
+    dry_run = args.dry_run or is_dry_run(env_data)
     if env_data:
-        ui_settings_table(env_data)
+        ui_settings_table(env_data, sources)
     else:
-        ui_warn("No .env found yet. You should run the configuration wizard now.")
+        ui_warn("No saved configuration found yet. You should run the configuration wizard now.")
     console.print()
     if args.config:
-        config_wizard(env_path)
+        config_wizard(env_path, dry_run=dry_run)
         return 0
     override = False if args.yes else Confirm.ask(
         "[bold]Do you want to override/edit configuration values now?[/bold]",
         default=(not env_data),
     )
     if override:
-        config_wizard(env_path)
-        env_data = read_env_file(env_path)
-    load_dotenv(env_path)
-    cfg = load_config(sync_mode="upload" if args.upload_calendar_html else args.mode)
-    if args.dry_run:
+        env_data = config_wizard(env_path, dry_run=dry_run)
+        saved, sources = load_settings(scripts_dir)
+        for key, value in env_data.items():
+            if saved.get(key) != value:
+                sources[key] = "preview edit" if dry_run or is_dry_run(env_data) else "default"
+    cfg = load_config(sync_mode="upload" if args.upload_calendar_html else args.mode, values=env_data)
+    if dry_run:
         cfg.dry_run = True
+    aliases = {"cms_timeout": "CMS_TIMEOUT_SECONDS"}
+    displayed = {}
+    for attribute, value in asdict(cfg).items():
+        key = aliases.get(attribute, attribute.upper())
+        displayed[key] = ",".join(value) if isinstance(value, tuple) else "" if value is None else str(value)
+    if args.mode or args.upload_calendar_html:
+        sources["SYNC_MODE"] = "CLI"
+    if args.dry_run:
+        sources["DRY_RUN"] = "CLI"
+    ui_settings_table(displayed, sources)
     setup_logging(cfg.log_level, cfg.log_file, scripts_dir)
     for attribute in ("sharepoint_media_dir", "calendar_image_dir"):
         path = getattr(cfg, attribute)
@@ -464,10 +493,10 @@ def main() -> int:
             run_delete = bool(args.delete)
         elif not args.yes:
             run_delete = Confirm.ask("Delete media from Xibo that is NOT present locally?", default=cfg.delete_remote_not_local)
-        env_data = read_env_file(env_path)
-        env_data["DELETE_REMOTE_NOT_LOCAL"] = "true" if run_delete else "false"
-        write_env_file(env_path, env_data)
-        ui_ok("Saved deletion choice to .env (DELETE_REMOTE_NOT_LOCAL)")
+            choice = "true" if run_delete else "false"
+            before_choice = {"DELETE_REMOTE_NOT_LOCAL": "true" if cfg.delete_remote_not_local else "false"}
+            save_edits(scripts_dir, before_choice, {"DELETE_REMOTE_NOT_LOCAL": choice}, dry_run=cfg.dry_run)
+            ui_ok("Deletion choice previewed" if cfg.dry_run else "Saved deletion choice to sync-state.json")
     ui_info(f"SharePoint media dir: {cfg.sharepoint_media_dir}")
     ui_info(f"Mode: {cfg.sync_mode} | Compare: {cfg.compare_mode} | Dry run: {cfg.dry_run}")
     if cfg.sync_mode in ("full", "download"):

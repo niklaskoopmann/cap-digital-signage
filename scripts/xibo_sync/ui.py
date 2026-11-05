@@ -11,6 +11,7 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.table import Table
 from rich.text import Text
+from .env_io import CREDENTIAL_KEYS
 
 console = Console()
 
@@ -66,7 +67,7 @@ def ui_warn(msg: str) -> None:
     console.print(f"[yellow]⚠[/yellow] {msg}")
 
 
-def ui_settings_table(env_data: Dict[str, str]) -> None:
+def ui_settings_table(env_data: Dict[str, str], sources: Optional[Dict[str, str]] = None) -> None:
     """Show a summary table of relevant settings.
 
     Args:
@@ -91,19 +92,20 @@ def ui_settings_table(env_data: Dict[str, str]) -> None:
     ]
 
     table = Table(
-        title="Current Settings (from .env)",
+        title="Effective Settings",
         box=box.ROUNDED,
         show_header=True,
         header_style="bold cyan",
     )
     table.add_column("Key", style="white", no_wrap=True)
     table.add_column("Value", style="green")
+    table.add_column("Source", style="dim")
 
-    for k in keys:
+    for k in dict.fromkeys([*keys, *env_data]):
         v = env_data.get(k, "")
-        if k in ("CMS_CLIENT_SECRET", "GRAPH_CLIENT_SECRET"):
+        if k in CREDENTIAL_KEYS:
             v = "******" if v else ""
-        table.add_row(k, v)
+        table.add_row(k, v, (sources or {}).get(k, "default"))
 
     console.print(table)
 
@@ -120,6 +122,8 @@ def prompt_edit(key: str, current: str, help_text: str = "", validator=None) -> 
     Returns:
         The validated value entered by the operator.
     """
+    if key in CREDENTIAL_KEYS:
+        return prompt_password(key, current)
     if help_text:
         console.print(f"[dim]{help_text}[/dim]")
     while True:

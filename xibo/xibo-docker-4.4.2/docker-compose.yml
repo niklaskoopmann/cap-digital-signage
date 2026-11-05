@@ -49,7 +49,19 @@ services:
         build:
             context: ../..
             dockerfile: services/calendar_render_service/Dockerfile
-        env_file: ../../services/calendar_render_service/.env
+        volumes:
+            - type: bind
+              source: ../../services/calendar_render_service/.env
+              target: /app/calendar_render_service/.env
+              read_only: true
+              bind:
+                  create_host_path: false
+            - type: bind
+              source: ../../services/calendar_render_service/secrets.json
+              target: /app/calendar_render_service/secrets.json
+              read_only: true
+              bind:
+                  create_host_path: false
         environment:
             - TZ=Europe/Berlin
         depends_on:
