@@ -18,9 +18,10 @@ work that has already been completed.
 - Plan: [docs/PLAN.md](PLAN.md)
 
 ### 2026-10-06 - Two-phase sync with Microsoft Graph download
-- Status: `Planned`
+- Status: `Implemented`
 - Summary: Add phase 1 that downloads Outlook calendar events (`calendarView`) and SharePoint media through Microsoft Graph (MSAL client credentials) while online, pause for the manual switch to the Xibo hotspot with a verified health check, then run the existing media sync and calendar DataSet upload as phase 2. Adds `SYNC_MODE`/`--mode` (`full`, `download`, `upload`), renames `LOCAL_MEDIA_DIR` to `SHAREPOINT_MEDIA_DIR`, adds `CALENDAR_IMAGE_DIR`, and removes `--upload-calendar`.
 - Plan: [docs/PLAN.md](PLAN.md)
+- Validation: Full offline pytest passed (350 passed, 1 skipped). Code review approved. Live `python .\sync_xibo.py --delete --mode full -y` exited 0: Graph downloaded one media file and calendar events, Xibo upload/layout creation and assignment succeeded, six calendar rows were written to the DataSet, and Collect Now completed. No remote-only media were deleted.
 
 ### 2026-09-17 - Cron-based scheduling for the calendar render service
 - Status: `Implemented`
